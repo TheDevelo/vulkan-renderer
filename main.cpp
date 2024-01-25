@@ -14,7 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "glm.hpp"
+#include "linear.hpp"
 
 const uint32_t WINDOW_W = 800;
 const uint32_t WINDOW_H = 600;
@@ -98,8 +98,8 @@ static std::vector<char> readFile(const std::string& filename) {
 
 // Vertex struct for Vulkan
 struct Vertex {
-    vec2<float> pos;
-    vec3<float> color;
+    Vec2<float> pos;
+    Vec3<float> color;
 
     static VkVertexInputBindingDescription getBindingDescription() {
         VkVertexInputBindingDescription bindingDescription {
@@ -1226,8 +1226,8 @@ private:
 int main() {
     VKRendererApp app;
 
-    vec2<float> x(1.0, 2.0);
-    vec2<float> y(3.0, 4.0);
+    Vec2<float> x(1.0, 2.0);
+    Vec2<float> y(3.0, 4.0);
 
     try {
         app.run();
@@ -1241,6 +1241,11 @@ int main() {
     std::cout << (x - y).x << " " << (x - y).y << std::endl;
     std::cout << (x * y).x << " " << (x * y).y << std::endl;
     std::cout << (x / y).x << " " << (x / y).y << std::endl;
+
+    Vec3<float> a(x, 5.0);
+    Vec3<float> b(y, 6.0);
+
+    std::cout << (a * b).x << " " << (a * b).y << " " << (a * b).z << std::endl;
 
     return EXIT_SUCCESS;
 }
