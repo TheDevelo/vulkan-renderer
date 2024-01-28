@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdlib>
+#include <cmath>
 
 // Generic vector type
 template<size_t N, typename T>
@@ -20,7 +21,7 @@ struct Vec {
         size_t i = 0;
         for (T& elem : list) {
             // Bail out if there are too many specifiers
-            if (i > N) {
+            if (i >= N) {
                 break;
             }
 
@@ -37,10 +38,11 @@ struct Vec {
     }
 };
 
+// Element-wise operations
 template<size_t N, typename T>
 Vec<N, T> operator+(Vec<N, T> const& a, Vec<N, T> const& b) {
     Vec<N, T> result;
-    for (unsigned int i = 0; i < N; i++) {
+    for (size_t i = 0; i < N; i++) {
         result.e[i] = a.e[i] + b.e[i];
     }
     return result;
@@ -49,7 +51,7 @@ Vec<N, T> operator+(Vec<N, T> const& a, Vec<N, T> const& b) {
 template<size_t N, typename T>
 Vec<N, T> operator-(Vec<N, T> const& a, Vec<N, T> const& b) {
     Vec<N, T> result;
-    for (unsigned int i = 0; i < N; i++) {
+    for (size_t i = 0; i < N; i++) {
         result.e[i] = a.e[i] - b.e[i];
     }
     return result;
@@ -58,7 +60,7 @@ Vec<N, T> operator-(Vec<N, T> const& a, Vec<N, T> const& b) {
 template<size_t N, typename T>
 Vec<N, T> operator*(Vec<N, T> const& a, Vec<N, T> const& b) {
     Vec<N, T> result;
-    for (unsigned int i = 0; i < N; i++) {
+    for (size_t i = 0; i < N; i++) {
         result.e[i] = a.e[i] * b.e[i];
     }
     return result;
@@ -67,10 +69,58 @@ Vec<N, T> operator*(Vec<N, T> const& a, Vec<N, T> const& b) {
 template<size_t N, typename T>
 Vec<N, T> operator/(Vec<N, T> const& a, Vec<N, T> const& b) {
     Vec<N, T> result;
-    for (unsigned int i = 0; i < N; i++) {
+    for (size_t i = 0; i < N; i++) {
         result.e[i] = a.e[i] / b.e[i];
     }
     return result;
+}
+
+// Scalar multiplication / division
+template<size_t N, typename T>
+Vec<N, T> operator*(T const& s, Vec<N, T> const& v) {
+    Vec<N, T> result;
+    for (size_t i = 0; i < N; i++) {
+        result.e[i] = s * v.e[i];
+    }
+    return result;
+}
+
+template<size_t N, typename T>
+Vec<N, T> operator*(Vec<N, T> const& v, T const& s) {
+    return s * v;
+}
+
+template<size_t N, typename T>
+Vec<N, T> operator/(Vec<N, T> const& v, T const& s) {
+    return (static_cast<T>(1) / s) * v;
+}
+
+// Length/Normalization
+namespace linear {
+    template<size_t N, typename T>
+    T dot(const Vec<N, T>& a, const Vec<N, T>& b) {
+        T result = static_cast<T>(0);
+        for (size_t i = 0; i < N; i++) {
+            result += a.e[i] * b.e[i];
+        }
+
+        return result;
+    }
+
+    template<size_t N, typename T>
+    T length2(const Vec<N, T>& v) {
+        return dot(v, v);
+    }
+
+    template<size_t N, typename T>
+    T length(const Vec<N, T>& v) {
+        return std::sqrt(length2(v));
+    }
+
+    template<size_t N, typename T>
+    Vec<N, T> normalize(const Vec<N, T>& v) {
+        return v / length(v);
+    }
 }
 
 // Specific Vec2,3,4 types
@@ -161,3 +211,163 @@ struct Vec<4, T> {
 template <typename T> using Vec2 = Vec<2, T>;
 template <typename T> using Vec3 = Vec<3, T>;
 template <typename T> using Vec4 = Vec<4, T>;
+
+// Cross product for Vec3
+namespace linear {
+    template<typename T>
+    Vec3<T> cross(Vec3<T> const& a, Vec3<T> const& b) {
+        Vec3<T> result;
+        result.x = a.y * b.z - a.z * b.y;
+        result.y = a.z * b.x - a.x * b.z;
+        result.z = a.x * b.y - a.y * b.x;
+
+        return result;
+    }
+}
+
+// Matrices are stored in column-major format
+// N = # rows, M = # columns
+template<size_t N, size_t M, typename T>
+struct Mat {
+    std::array<T, N * M> e;
+
+    Mat() = default;
+
+    explicit Mat(T val) {
+        for (size_t i = 0; i < N * M; ++i) {
+            e[i] = val;
+        }
+    }
+
+    Mat(const std::initializer_list<T> &list) {
+        size_t i = 0;
+        for (T const& elem : list) {
+            // Bail out if there are too many specifiers
+            if (i >= N * M) {
+                break;
+            }
+
+            e[i] = elem;
+            i++;
+        }
+    }
+
+    T operator[](size_t i) const {
+        return e[i];
+    }
+    T& operator[](size_t i) {
+        return e[i];
+    }
+
+    inline T at(size_t col, size_t row) const {
+        return e[row + col * N];
+    }
+    inline T& at(size_t col, size_t row) {
+        return e[row + col * N];
+    }
+};
+
+// Matrix calculations
+namespace linear {
+    template<size_t N, size_t M, size_t P, typename T>
+    Mat<N, P, T> mmul(Mat<N, M, T> A, Mat<M, P, T> B) {
+        Mat<N, P, T> result;
+        for (size_t col = 0; col < P; col++) {
+            for (size_t row = 0; row < N; row++) {
+                T dot = static_cast<T>(0);
+                for (size_t i = 0; i < M; i++) {
+                    dot += A.at(i, row) * B.at(col, i);
+                }
+                result.at(col, row) = dot;
+            }
+        }
+
+        return result;
+    }
+
+    template<size_t N, size_t M, typename T>
+    Vec<N, T> mmul(Mat<N, M, T> A, Vec<M, T> x) {
+        Vec<N, T> result;
+        for (size_t i = 0; i < N; i++) {
+            T dot = static_cast<T>(0);
+            for (size_t j = 0; j < M; j++) {
+                dot += A.at(j, i) * x.e[j];
+            }
+            result[i] = dot;
+        }
+
+        return result;
+    }
+}
+
+template <typename T> using Mat4 = Mat<4, 4, T>;
+
+// Useful matrix/vector calc helper functions
+namespace linear {
+    // Perspective matrix calculation taken from glm's perspectiveLH_ZO.
+    // LH is appropriate for Vulkan per detail/setup.hpp in glm, and want ZO as Vulkan's depth clip space goes from 0 to 1
+    template<typename T>
+    Mat4<T> perspective(T fovy, T aspect, T zNear, T zFar) {
+        T const invTanHalfFovy = static_cast<T>(1) / std::tan(fovy / static_cast<T>(2));
+
+        Mat4<T> result(static_cast<T>(0));
+        result.at(0, 0) = invTanHalfFovy / aspect;
+        result.at(1, 1) = invTanHalfFovy;
+        result.at(2, 2) = zFar / (zFar - zNear);
+        result.at(2, 3) = static_cast<T>(1);
+        result.at(3, 2) = -(zFar * zNear) / (zFar - zNear);
+        return result;
+    }
+
+    // Rotation matrix calculation adapted from glm, but not 1-1 copied.
+    // NOTE: I tried taking in a const& for axisIn, but it was giving "stack smashing" errors????
+    template<typename T>
+    Mat4<T> rotate(T angle, Vec3<T> axisIn) {
+        T const cos = std::cos(angle);
+        T const sin = std::sin(angle);
+
+
+        Vec3<T> axis = normalize(axisIn);
+        Vec3<T> temp = (static_cast<T>(1) - cos) * axis;
+
+        Mat4<T> result(static_cast<T>(0));
+        result.at(0, 0) = cos + temp[0] * axis[0];
+        result.at(0, 1) = temp[0] * axis[1] + sin * axis[2];
+        result.at(0, 2) = temp[0] * axis[2] - sin * axis[1];
+
+        result.at(1, 0) = temp[1] * axis[0] - sin * axis[2];
+        result.at(1, 1) = cos + temp[1] * axis[1];
+        result.at(1, 2) = temp[1] * axis[2] + sin * axis[0];
+
+        result.at(2, 0) = temp[2] * axis[0] + sin * axis[1];
+        result.at(2, 1) = temp[2] * axis[1] - sin * axis[0];
+        result.at(2, 2) = cos + temp[2] * axis[2];
+
+        result.at(3, 3) = static_cast<T>(1);
+
+        return result;
+    }
+
+    // View matrix helper that points a camera at eye to center, with up being the direction of "up"
+    template<typename T>
+    Mat4<T> lookAt(Vec3<T> eye, Vec3<T> center, Vec3<T> up) {
+        Vec3<T> const f = normalize(center - eye); // Forward
+        Vec3<T> const s = normalize(cross(f, up)); // Side
+        Vec3<T> const u = cross(f, s); // Orthonormal Up (as up isn't guaranteed to be orthonormal to f and s)
+
+        // NOTE: initializer_list just copies to the array, so this is actually the transpose of the real matrix
+        Mat4<T> result {
+            s.x, u.x, f.x, 0.0f,
+            s.y, u.y, f.y, 0.0f,
+            s.z, u.z, f.z, 0.0f,
+            -dot(s, eye), -dot(u, eye), -dot(f, eye), 1.0f
+        };
+        return result;
+    }
+}
+
+// Radian & Degree helpers
+#define DEG2RAD(x) (x * M_PI / 180.0)
+#define RAD2DEG(x) (x * 180.0 / M_PI)
+#define DEG2RADF(x) static_cast<float>(DEG2RAD(x))
+#define RAD2DEGF(x) static_cast<float>(RAD2DEG(x))
