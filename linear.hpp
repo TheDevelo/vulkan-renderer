@@ -302,6 +302,16 @@ namespace linear {
 
 template <typename T> using Mat4 = Mat<4, 4, T>;
 
+// Useful constants
+namespace linear {
+    const Mat4<float> M4F_IDENTITY = {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+}
+
 // Useful matrix/vector calc helper functions
 namespace linear {
     // Perspective matrix calculation taken from glm's perspectiveLH_ZO.
@@ -319,29 +329,42 @@ namespace linear {
         return result;
     }
 
-    // Rotation matrix calculation adapted from glm, but not 1-1 copied.
-    // NOTE: I tried taking in a const& for axisIn, but it was giving "stack smashing" errors????
+    // Infinite perspective matrix, calculated as the limit of perspective as zFar -> infinity
+    template<typename T>
+    Mat4<T> infinitePerspective(T fovy, T aspect, T zNear) {
+        T const invTanHalfFovy = static_cast<T>(1) / std::tan(fovy / static_cast<T>(2));
+
+        Mat4<T> result(static_cast<T>(0));
+        result.at(0, 0) = invTanHalfFovy / aspect;
+        result.at(1, 1) = invTanHalfFovy;
+        result.at(2, 2) = 1;
+        result.at(2, 3) = static_cast<T>(1);
+        result.at(3, 2) = -zNear;
+        return result;
+    }
+
+    // Rotation matrix calculation adapted from glm/formula from wikipedia's "Rotation matrix" page
     template<typename T>
     Mat4<T> rotate(T angle, Vec3<T> axisIn) {
         T const cos = std::cos(angle);
         T const sin = std::sin(angle);
 
-
         Vec3<T> axis = normalize(axisIn);
-        Vec3<T> temp = (static_cast<T>(1) - cos) * axis;
+        Vec3<T> outer = (static_cast<T>(1) - cos) * axis;
 
+        // Matrix is (cos T)I + (sin T)[axis]_x + (1 - cos T)[u (x) u]. [u (x) u] is the outer product, so outer[i] * axis[j] gives the ijth entry of (1 - cos T)[u (x) u]
         Mat4<T> result(static_cast<T>(0));
-        result.at(0, 0) = cos + temp[0] * axis[0];
-        result.at(0, 1) = temp[0] * axis[1] + sin * axis[2];
-        result.at(0, 2) = temp[0] * axis[2] - sin * axis[1];
+        result.at(0, 0) = outer[0] * axis[0] + cos;
+        result.at(0, 1) = outer[0] * axis[1] + sin * axis[2];
+        result.at(0, 2) = outer[0] * axis[2] - sin * axis[1];
 
-        result.at(1, 0) = temp[1] * axis[0] - sin * axis[2];
-        result.at(1, 1) = cos + temp[1] * axis[1];
-        result.at(1, 2) = temp[1] * axis[2] + sin * axis[0];
+        result.at(1, 0) = outer[1] * axis[0] - sin * axis[2];
+        result.at(1, 1) = outer[1] * axis[1] + cos;
+        result.at(1, 2) = outer[1] * axis[2] + sin * axis[0];
 
-        result.at(2, 0) = temp[2] * axis[0] + sin * axis[1];
-        result.at(2, 1) = temp[2] * axis[1] - sin * axis[0];
-        result.at(2, 2) = cos + temp[2] * axis[2];
+        result.at(2, 0) = outer[2] * axis[0] + sin * axis[1];
+        result.at(2, 1) = outer[2] * axis[1] - sin * axis[0];
+        result.at(2, 2) = outer[2] * axis[2] + cos;
 
         result.at(3, 3) = static_cast<T>(1);
 
@@ -351,6 +374,7 @@ namespace linear {
     // View matrix helper that points a camera at eye to center, with up being the direction of "up"
     template<typename T>
     Mat4<T> lookAt(Vec3<T> eye, Vec3<T> center, Vec3<T> up) {
+        // We calculate the forward, side, and up directions that the XYZ axes get translated to
         Vec3<T> const f = normalize(center - eye); // Forward
         Vec3<T> const s = normalize(cross(f, up)); // Side
         Vec3<T> const u = cross(f, s); // Orthonormal Up (as up isn't guaranteed to be orthonormal to f and s)
