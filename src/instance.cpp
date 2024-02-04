@@ -434,7 +434,7 @@ void RenderInstance::createRealSwapChain() {
     vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
 
     for (size_t i = 0; i < swapChainImages.size(); i++) {
-        renderImageViews[i] = createImageView(device, swapChainImages[i], renderImageFormat);
+        renderImageViews[i] = createImageView(device, swapChainImages[i], renderImageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
     }
 }
 

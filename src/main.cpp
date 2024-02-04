@@ -18,6 +18,7 @@
 
 #include "linear.hpp"
 #include "instance.hpp"
+#include "scene.hpp"
 #include "util.hpp"
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
@@ -51,7 +52,7 @@ static std::vector<char> readFile(const std::string& filename) {
 
 // Vertex struct for Vulkan
 struct Vertex {
-    Vec2<float> pos;
+    Vec3<float> pos;
     Vec3<float> color;
     Vec2<float> texUV;
 
@@ -70,7 +71,7 @@ struct Vertex {
             {
                 .location = 0,
                 .binding = 0,
-                .format = VK_FORMAT_R32G32_SFLOAT,
+                .format = VK_FORMAT_R32G32B32_SFLOAT,
                 .offset = offsetof(Vertex, pos),
             },
             {
@@ -92,14 +93,28 @@ struct Vertex {
 };
 
 const std::vector<Vertex> vertices = {
-    {{-0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-    {{0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
-    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+    {{0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+    {{1.5f, 0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+    {{1.5f, 1.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
+    {{0.5f, 1.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+
+    {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{0.5f, 0.5f, 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{-0.5f, 0.5f, 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
 };
 
 const std::vector<uint16_t> indices = {
-    0, 1, 2, 0, 2, 3
+    0, 1, 2, 0, 2, 3,
+    4, 5, 6, 4, 6, 7
 };
 
 // MVP matrices for the vertex shader
@@ -137,6 +152,10 @@ private:
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
 
+    VkImage depthImage;
+    VkDeviceMemory depthImageMemory;
+    VkImageView depthImageView;
+
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
     std::vector<void*> uniformBuffersMaps;
@@ -158,9 +177,10 @@ private:
         createDescriptorSetLayout();
         createGraphicsPipeline();
 
-        createFramebuffers();
-
         createCommandBuffers();
+
+        createDepthImage();
+        createFramebuffers();
 
         createTextureImage();
         createTextureSampler();
@@ -198,26 +218,44 @@ private:
             .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         };
 
+        // This attachment describes the depth buffer
+        VkAttachmentDescription depthAttachment {
+            .format = VK_FORMAT_D32_SFLOAT,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        };
+        VkAttachmentReference depthAttachmentRef {
+            .attachment = 1,
+            .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        };
+
         // Define the subpass for rendering our triangle
         VkSubpassDescription subpassDesc {
             .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
             .colorAttachmentCount = 1,
             .pColorAttachments = &colorAttachmentRef,
+            .pDepthStencilAttachment = &depthAttachmentRef
         };
         VkSubpassDependency dependency {
             .srcSubpass = VK_SUBPASS_EXTERNAL,
             .dstSubpass = 0,
-            .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            .srcAccessMask = 0,
-            .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+            .srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
         };
 
         // Create the whole render pass
+        std::array<VkAttachmentDescription, 2> attachments = { colorAttachment, depthAttachment };
         VkRenderPassCreateInfo renderPassInfo {
             .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-            .attachmentCount = 1,
-            .pAttachments = &colorAttachment,
+            .attachmentCount = static_cast<uint32_t>(attachments.size()),
+            .pAttachments = attachments.data(),
             .subpassCount = 1,
             .pSubpasses = &subpassDesc,
             .dependencyCount = 1,
@@ -338,6 +376,15 @@ private:
             .attachmentCount = 1,
             .pAttachments = &colorBlendAttachment,
         };
+        // Depth stencil determines how we use the depth buffer and stencil buffer
+        VkPipelineDepthStencilStateCreateInfo depthStencilInfo {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+            .depthTestEnable = VK_TRUE,
+            .depthWriteEnable = VK_TRUE,
+            .depthCompareOp = VK_COMPARE_OP_LESS,
+            .depthBoundsTestEnable = VK_FALSE,
+            .stencilTestEnable = VK_FALSE,
+        };
         // Pipeline layout determines which uniforms are available to the shaders
         VkPipelineLayoutCreateInfo pipelineLayoutInfo {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -357,7 +404,7 @@ private:
             .pViewportState = &viewportStateInfo,
             .pRasterizationState = &rasterizerStateInfo,
             .pMultisampleState = &multisamplingInfo,
-            .pDepthStencilState = nullptr, // Null for now, will eventually fill in once we add our depth buffer
+            .pDepthStencilState = &depthStencilInfo, // Null for now, will eventually fill in once we add our depth buffer
             .pColorBlendState = &colorBlendInfo,
             .pDynamicState = &dynamicStateInfo,
             .layout = pipelineLayout,
@@ -392,15 +439,16 @@ private:
     void createFramebuffers() {
         renderTargetFramebuffers.resize(renderInstance->renderImageViews.size());
         for (size_t i = 0; i < renderInstance->renderImageViews.size(); i++) {
-            VkImageView attachments[] = {
+            std::array<VkImageView, 2> attachments = {
                 renderInstance->renderImageViews[i],
+                depthImageView,
             };
 
             VkFramebufferCreateInfo framebufferInfo {
                 .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
                 .renderPass = renderPass,
-                .attachmentCount = 1,
-                .pAttachments = attachments,
+                .attachmentCount = static_cast<uint32_t>(attachments.size()),
+                .pAttachments = attachments.data(),
                 .width = renderInstance->renderImageExtent.width,
                 .height = renderInstance->renderImageExtent.height,
                 .layers = 1,
@@ -433,6 +481,13 @@ private:
         };
 
         VK_ERR(vkAllocateCommandBuffers(renderInstance->device, &commandBufferAllocInfo, commandBuffers.data()), "failed to allocate command buffers!");
+    }
+
+    void createDepthImage() {
+        createImage(renderInstance->renderImageExtent.width, renderInstance->renderImageExtent.height, VK_FORMAT_D32_SFLOAT,
+                    VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                    depthImage, depthImageMemory);
+        depthImageView = createImageView(renderInstance->device, depthImage, VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT);
     }
 
     // Create a texture and its associated image view
@@ -473,7 +528,7 @@ private:
         vkFreeMemory(renderInstance->device, stagingBufferMemory, nullptr);
 
         // Create the texture image view
-        textureImageView = createImageView(renderInstance->device, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+        textureImageView = createImageView(renderInstance->device, textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
     }
 
     // Create a texture sampler (not per image)
@@ -520,7 +575,7 @@ private:
         VK_ERR(vkCreateImage(renderInstance->device, &imageInfo, nullptr, &image), "failed to create image!");
 
         VkMemoryRequirements memRequirements;
-        vkGetImageMemoryRequirements(renderInstance->device, textureImage, &memRequirements);
+        vkGetImageMemoryRequirements(renderInstance->device, image, &memRequirements);
 
         VkMemoryAllocateInfo allocInfo {
             .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -529,7 +584,7 @@ private:
         };
 
         VK_ERR(vkAllocateMemory(renderInstance->device, &allocInfo, nullptr, &imageMemory), "failed to allocate image memory!");
-        vkBindImageMemory(renderInstance->device, textureImage, textureImageMemory, 0);
+        vkBindImageMemory(renderInstance->device, image, imageMemory, 0);
     }
 
     void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
@@ -910,7 +965,9 @@ private:
         VK_ERR(vkBeginCommandBuffer(commandBuffer, &beginInfo), "failed to begin recording command buffer!");
 
         // Start the render pass
-        VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+        std::array<VkClearValue, 2> clearColors;
+        clearColors[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+        clearColors[1].depthStencil = {1.0f, 0};
         VkRenderPassBeginInfo renderPassInfo {
             .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
             .renderPass = renderPass,
@@ -919,8 +976,8 @@ private:
                 .offset = {0, 0},
                 .extent = renderInstance->renderImageExtent,
             },
-            .clearValueCount = 1,
-            .pClearValues = &clearColor,
+            .clearValueCount = static_cast<uint32_t>(clearColors.size()),
+            .pClearValues = clearColors.data(),
         };
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
@@ -950,6 +1007,24 @@ private:
 
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
+        Scene scene;
+        scene.meshes = {
+            {
+                .vertexCount = 6,
+                .vertexBufferIndex = 0,
+                .vertexBufferOffset = 8 * sizeof(Vertex),
+            },
+            {
+                .vertexCount = 3,
+                .vertexBufferIndex = 0,
+                .vertexBufferOffset = 13 * sizeof(Vertex),
+            },
+        };
+        scene.buffers = {
+            vertexBuffer,
+        };
+        scene.renderScene(commandBuffer);
+
         // End our render pass and command buffer
         vkCmdEndRenderPass(commandBuffer);
 
@@ -974,6 +1049,8 @@ private:
 
     void recreateFramebuffers() {
         cleanupFramebuffers();
+
+        createDepthImage();
         createFramebuffers();
     }
 
@@ -1011,6 +1088,10 @@ private:
     }
 
     void cleanupFramebuffers() {
+        vkDestroyImageView(renderInstance->device, depthImageView, nullptr);
+        vkDestroyImage(renderInstance->device, depthImage, nullptr);
+        vkFreeMemory(renderInstance->device, depthImageMemory, nullptr);
+
         for (VkFramebuffer framebuffer : renderTargetFramebuffers) {
             vkDestroyFramebuffer(renderInstance->device, framebuffer, nullptr);
         }

@@ -2,7 +2,7 @@
 
 #include "util.hpp"
 
-VkImageView createImageView(VkDevice device, VkImage image, VkFormat format) {
+VkImageView createImageView(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) {
     VkImageViewCreateInfo imageViewCreateInfo {
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         .image = image,
@@ -15,7 +15,7 @@ VkImageView createImageView(VkDevice device, VkImage image, VkFormat format) {
             .a = VK_COMPONENT_SWIZZLE_IDENTITY,
         },
         .subresourceRange = VkImageSubresourceRange {
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .aspectMask = aspectFlags,
             .baseMipLevel = 0,
             .levelCount = 1,
             .baseArrayLayer = 0,
