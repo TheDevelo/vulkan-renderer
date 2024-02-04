@@ -1,1 +1,5 @@
-VKRenderer
+objs/
+bin/
+.vscode/
+maek-cache.json
+compile_commands.json
