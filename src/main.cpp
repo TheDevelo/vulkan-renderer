@@ -16,21 +16,13 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "buffer.hpp"
 #include "linear.hpp"
 #include "instance.hpp"
 #include "scene.hpp"
 #include "util.hpp"
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
-
-// Container struct for buffer copy regions
-struct BufferCopy {
-    VkBuffer srcBuffer;
-    VkDeviceSize srcOffset;
-    VkBuffer dstBuffer;
-    VkDeviceSize dstOffset;
-    VkDeviceSize size;
-};
 
 // Helper function to read files into a vector of chars
 static std::vector<char> readFile(const std::string& filename) {
@@ -117,10 +109,10 @@ const std::vector<uint16_t> indices = {
     4, 5, 6, 4, 6, 7
 };
 
-// MVP matrices for the vertex shader
-struct MVPMatrices {
-    Mat4<float> model;
-    Mat4<float> viewProj;
+// View and projection matrices for the vertex shader
+struct ViewProjMatrices {
+    Mat4<float> view;
+    Mat4<float> proj;
 };
 
 class VKRendererApp {
@@ -129,11 +121,11 @@ public:
         initRenderInstance();
         initVulkan();
         mainLoop();
-        cleanup();
     }
 
 private:
-    std::unique_ptr<RenderInstance> renderInstance;
+    std::shared_ptr<RenderInstance> renderInstance;
+    Scene scene;
 
     VkRenderPass renderPass;
     VkDescriptorSetLayout descriptorSetLayout;
@@ -163,7 +155,6 @@ private:
     VkDescriptorPool descriptorPool;
     std::vector<VkDescriptorSet> descriptorSets;
 
-    VkCommandPool commandPool;
     std::vector<VkCommandBuffer> commandBuffers;
 
     std::vector<VkSemaphore> imageAvailableSemaphores;
@@ -197,7 +188,7 @@ private:
             .headless = false,
         };
 
-        renderInstance = std::unique_ptr<RenderInstance>(new RenderInstance(options));
+        renderInstance = std::shared_ptr<RenderInstance>(new RenderInstance(options));
     }
 
     // Creates the render pass for our renderer
@@ -385,11 +376,20 @@ private:
             .depthBoundsTestEnable = VK_FALSE,
             .stencilTestEnable = VK_FALSE,
         };
+        // Push constants are small amounts of data we can directly upload through the command buffer
+        // They will be used to upload model transforms for each object
+        VkPushConstantRange pushConstantInfo {
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size = sizeof(Mat4<float>),
+        };
         // Pipeline layout determines which uniforms are available to the shaders
         VkPipelineLayoutCreateInfo pipelineLayoutInfo {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .setLayoutCount = 1,
             .pSetLayouts = &descriptorSetLayout,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &pushConstantInfo,
         };
 
         VK_ERR(vkCreatePipelineLayout(renderInstance->device, &pipelineLayoutInfo, nullptr, &pipelineLayout), "failed to create pipeline layout!");
@@ -460,22 +460,11 @@ private:
 
     // Create the command pool and buffer to send rendering commands to the GPU
     void createCommandBuffers() {
-        QueueFamilyIndices queueFamilyIndices = renderInstance->getQueueFamilies();
-
-        // Create the command pool
-        VkCommandPoolCreateInfo poolInfo {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-            .queueFamilyIndex = queueFamilyIndices.graphicsFamily.value(),
-        };
-
-        VK_ERR(vkCreateCommandPool(renderInstance->device, &poolInfo, nullptr, &commandPool), "failed to create command pool!");
-
         // Allocate the command buffers
         commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
         VkCommandBufferAllocateInfo commandBufferAllocInfo {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .commandPool = commandPool,
+            .commandPool = renderInstance->commandPool,
             .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
             .commandBufferCount = static_cast<uint32_t>(commandBuffers.size()),
         };
@@ -503,7 +492,7 @@ private:
         VkDeviceSize imageSize = textureWidth * textureHeight * 4;
         VkBuffer stagingBuffer;
         VkDeviceMemory stagingBufferMemory;
-        createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+        createBuffer(*renderInstance, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
         void* data;
         vkMapMemory(renderInstance->device, stagingBufferMemory, 0, imageSize, 0, &data);
@@ -580,7 +569,7 @@ private:
         VkMemoryAllocateInfo allocInfo {
             .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .allocationSize = memRequirements.size,
-            .memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, memProps),
+            .memoryTypeIndex = findMemoryType(*renderInstance, memRequirements.memoryTypeBits, memProps),
         };
 
         VK_ERR(vkAllocateMemory(renderInstance->device, &allocInfo, nullptr, &imageMemory), "failed to allocate image memory!");
@@ -588,7 +577,7 @@ private:
     }
 
     void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
-        VkCommandBuffer commandBuffer = beginSingleUseCBuffer();
+        VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
 
         VkImageMemoryBarrier barrier {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -627,11 +616,11 @@ private:
 
         vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-        endSingleUseCBuffer(commandBuffer);
+        endSingleUseCBuffer(*renderInstance, commandBuffer);
     }
 
     void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
-        VkCommandBuffer commandBuffer = beginSingleUseCBuffer();
+        VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
 
         VkBufferImageCopy region {
             .bufferOffset = 0,
@@ -649,20 +638,20 @@ private:
 
         vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-        endSingleUseCBuffer(commandBuffer);
+        endSingleUseCBuffer(*renderInstance, commandBuffer);
     }
 
     // Create the vertex buffer AND index buffer for our triangle
     void createVertexBuffer() {
         VkDeviceSize vertexSize = sizeof(vertices[0]) * vertices.size();
-        createBuffer(vertexSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
+        createBuffer(*renderInstance, vertexSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
         VkDeviceSize indexSize = sizeof(indices[0]) * indices.size();
-        createBuffer(indexSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
+        createBuffer(*renderInstance, indexSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
 
         // Staging buffer will contain both our data for the vertex and index buffer. We'll then copy both simultaneously.
         VkBuffer stagingBuffer;
         VkDeviceMemory stagingBufferMemory;
-        createBuffer(vertexSize + indexSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+        createBuffer(*renderInstance, vertexSize + indexSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
 
         void* data;
         vkMapMemory(renderInstance->device, stagingBufferMemory, 0, vertexSize + indexSize, 0, &data);
@@ -687,111 +676,21 @@ private:
                 .size = indexSize,
             },
         };
-        copyBuffers(bufferCopyInfos, 2);
+        copyBuffers(*renderInstance, bufferCopyInfos, 2);
 
         vkDestroyBuffer(renderInstance->device, stagingBuffer, nullptr);
         vkFreeMemory(renderInstance->device, stagingBufferMemory, nullptr);
     }
 
-    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memProps, VkBuffer& buffer, VkDeviceMemory& memory) {
-        VkBufferCreateInfo bufferInfo {
-            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            .size = size,
-            .usage = usage,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-        };
-
-        VK_ERR(vkCreateBuffer(renderInstance->device, &bufferInfo, nullptr, &buffer), "failed to create buffer!");
-
-        VkMemoryRequirements memRequirements;
-        vkGetBufferMemoryRequirements(renderInstance->device, buffer, &memRequirements);
-
-        VkMemoryAllocateInfo allocInfo {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .allocationSize = memRequirements.size,
-            .memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, memProps),
-        };
-
-        VK_ERR(vkAllocateMemory(renderInstance->device, &allocInfo, nullptr, &memory), "failed to allocate buffer memory!");
-
-        vkBindBufferMemory(renderInstance->device, buffer, memory, 0);
-    }
-
-    void copyBuffers(BufferCopy* bufferCopyInfos, uint32_t bufferCopyCount) {
-        VkCommandBuffer commandBuffer = beginSingleUseCBuffer();
-
-        for (uint32_t i = 0; i < bufferCopyCount; i++) {
-            BufferCopy& copyInfo = bufferCopyInfos[i];
-
-            VkBufferCopy copyCmd {
-                .srcOffset = copyInfo.srcOffset,
-                .dstOffset = copyInfo.dstOffset,
-                .size = copyInfo.size,
-            };
-            vkCmdCopyBuffer(commandBuffer, copyInfo.srcBuffer, copyInfo.dstBuffer, 1, &copyCmd);
-        }
-
-        endSingleUseCBuffer(commandBuffer);
-    }
-
-    // Create a command buffer that will be used for a single time
-    VkCommandBuffer beginSingleUseCBuffer() {
-        VkCommandBufferAllocateInfo commandBufferAllocInfo {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .commandPool = commandPool,
-            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-            .commandBufferCount = 1,
-        };
-
-        VkCommandBuffer commandBuffer;
-        VK_ERR(vkAllocateCommandBuffers(renderInstance->device, &commandBufferAllocInfo, &commandBuffer), "failed to allocate command buffer!");
-
-        VkCommandBufferBeginInfo beginInfo {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-        };
-        VK_ERR(vkBeginCommandBuffer(commandBuffer, &beginInfo), "failed to begin command buffer!");
-
-        return commandBuffer;
-    }
-
-    void endSingleUseCBuffer(VkCommandBuffer commandBuffer) {
-        vkEndCommandBuffer(commandBuffer);
-
-        VkSubmitInfo submitInfo {
-            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            .commandBufferCount = 1,
-            .pCommandBuffers = &commandBuffer,
-        };
-        vkQueueSubmit(renderInstance->graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-        vkQueueWaitIdle(renderInstance->graphicsQueue);
-
-        vkFreeCommandBuffers(renderInstance->device, commandPool, 1, &commandBuffer);
-    }
-
-    // Helper function that gets the memory type we need for allocating a buffer
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-        VkPhysicalDeviceMemoryProperties memProperties;
-        vkGetPhysicalDeviceMemoryProperties(renderInstance->physicalDevice, &memProperties);
-
-        for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-            if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-                return i;
-            }
-        }
-
-        throw std::runtime_error("failed to find suitable memory type!");
-    }
-
     void createUniformBuffers() {
-        VkDeviceSize bufferSize = sizeof(MVPMatrices);
+        VkDeviceSize bufferSize = sizeof(ViewProjMatrices);
 
         uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
         uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
         uniformBuffersMaps.resize(MAX_FRAMES_IN_FLIGHT);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
+            createBuffer(*renderInstance, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
 
             vkMapMemory(renderInstance->device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMaps[i]);
         }
@@ -836,7 +735,7 @@ private:
             VkDescriptorBufferInfo bufferInfo {
                 .buffer = uniformBuffers[i],
                 .offset = 0,
-                .range = sizeof(MVPMatrices),
+                .range = sizeof(ViewProjMatrices),
             };
 
             VkDescriptorImageInfo imageInfo {
@@ -890,6 +789,28 @@ private:
     }
 
     void mainLoop() {
+        // TODO: Real scene loader (any maybe not in mainLoop)?
+        scene.meshes = {
+            {
+                .vertexCount = 6,
+                .vertexBufferIndex = 0,
+                .vertexBufferOffset = 8 * sizeof(Vertex),
+            },
+            {
+                .vertexCount = 3,
+                .vertexBufferIndex = 0,
+                .vertexBufferOffset = 13 * sizeof(Vertex),
+            },
+        };
+        scene.nodes = {
+            {
+                .name = "ROOT NODE",
+                .transform = linear::M4F_IDENTITY,
+                .meshIndex = 0,
+            },
+        };
+        scene.vertexBufferFromBuffer(renderInstance, vertices.data(), sizeof(Vertex) * vertices.size());
+
         while (!renderInstance->shouldClose()) {
             renderInstance->processWindowEvents();
 
@@ -923,7 +844,7 @@ private:
         vkResetCommandBuffer(commandBuffers[currentFrame], 0);
         recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
-        updateMVPMatrices(currentFrame);
+        updateViewProjMatrices(currentFrame);
 
         // Submit our command buffer for rendering!
         VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
@@ -1005,25 +926,22 @@ private:
         vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
+        // TODO: Remove this temporary rendering code once we get the scene viewer up and running
+        static auto startTime = std::chrono::high_resolution_clock::now();
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        float totalTime = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+        Mat4<float> model = linear::rotate(totalTime, Vec3<float>(0.0f, 0.0f, 1.0f));
+        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4<float>), &model);
+
         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
-        Scene scene;
-        scene.meshes = {
-            {
-                .vertexCount = 6,
-                .vertexBufferIndex = 0,
-                .vertexBufferOffset = 8 * sizeof(Vertex),
-            },
-            {
-                .vertexCount = 3,
-                .vertexBufferIndex = 0,
-                .vertexBufferOffset = 13 * sizeof(Vertex),
-            },
+        // Draw the scene
+        SceneRenderInfo sceneRenderInfo {
+            .commandBuffer = commandBuffer,
+            .pipelineLayout = pipelineLayout,
         };
-        scene.buffers = {
-            vertexBuffer,
-        };
-        scene.renderScene(commandBuffer);
+        scene.renderScene(sceneRenderInfo);
 
         // End our render pass and command buffer
         vkCmdEndRenderPass(commandBuffer);
@@ -1031,17 +949,12 @@ private:
         VK_ERR(vkEndCommandBuffer(commandBuffer), "failed to record command buffer!");
     }
 
-    void updateMVPMatrices(uint32_t currentImage) {
-        static auto startTime = std::chrono::high_resolution_clock::now();
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        float totalTime = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-
-        Mat4<float> model = linear::rotate(totalTime, Vec3<float>(0.0f, 0.0f, 1.0f));
+    void updateViewProjMatrices(uint32_t currentImage) {
         Mat4<float> view = linear::lookAt(Vec3<float>(2.0f), Vec3<float>(0.0f), Vec3<float>(0.0f, 0.0f, 1.0f));
         Mat4<float> proj = linear::perspective(DEG2RADF(60.0), renderInstance->renderImageExtent.width / (float) renderInstance->renderImageExtent.height, 0.1f, 10.0f);
-        MVPMatrices mvp {
-            .model = model,
-            .viewProj = linear::mmul(proj, view),
+        ViewProjMatrices mvp {
+            .view = view,
+            .proj = proj,
         };
 
         memcpy(uniformBuffersMaps[currentImage], &mvp, sizeof(mvp));
@@ -1054,7 +967,10 @@ private:
         createFramebuffers();
     }
 
-    void cleanup() {
+public:
+    // Run all of our Vulkan cleanup within the destructor
+    // That way, an exception will still properly wind down the Vulkan resources
+    ~VKRendererApp() {
         cleanupFramebuffers();
 
         vkDestroyDescriptorPool(renderInstance->device, descriptorPool, nullptr);
@@ -1079,14 +995,13 @@ private:
             vkDestroyFence(renderInstance->device, inFlightFences[i], nullptr);
         }
 
-        vkDestroyCommandPool(renderInstance->device, commandPool, nullptr);
-
         vkDestroyPipeline(renderInstance->device, pipeline, nullptr);
         vkDestroyPipelineLayout(renderInstance->device, pipelineLayout, nullptr);
         vkDestroyDescriptorSetLayout(renderInstance->device, descriptorSetLayout, nullptr);
         vkDestroyRenderPass(renderInstance->device, renderPass, nullptr);
     }
 
+private:
     void cleanupFramebuffers() {
         vkDestroyImageView(renderInstance->device, depthImageView, nullptr);
         vkDestroyImage(renderInstance->device, depthImage, nullptr);

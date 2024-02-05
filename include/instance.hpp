@@ -44,6 +44,8 @@ public:
     VkQueue graphicsQueue;
     VkQueue presentQueue;
 
+    VkCommandPool commandPool;
+
     std::vector<VkImageView> renderImageViews;
     VkFormat renderImageFormat;
     VkExtent2D renderImageExtent;
@@ -63,7 +65,7 @@ public:
     bool shouldClose();
     void processWindowEvents();
 
-    QueueFamilyIndices getQueueFamilies();
+    inline QueueFamilyIndices getQueueFamilies();
 
 private:
     // Real window state
@@ -86,6 +88,7 @@ private:
     void initVulkanInstance();
     void initVulkanSurface();
     void initVulkanDevice();
+    void createCommandPool();
 
     // Helper init functions
     bool isDeviceSuitable(VkPhysicalDevice device);

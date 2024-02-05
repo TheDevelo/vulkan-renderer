@@ -90,6 +90,8 @@ RenderInstance::RenderInstance(RenderInstanceOptions const& opts) {
     initVulkanDevice();
 
     createRealSwapChain();
+
+    createCommandPool();
 };
 
 void RenderInstance::initRealWindow() {
@@ -104,6 +106,8 @@ void RenderInstance::initRealWindow() {
 // Cleanup destructor for our render instance
 RenderInstance::~RenderInstance() {
     cleanupRealSwapChain();
+
+    vkDestroyCommandPool(device, commandPool, nullptr);
 
     vkDestroyDevice(device, nullptr);
     if (enableValidationLayers) {
@@ -225,7 +229,7 @@ void RenderInstance::initVulkanDevice() {
     }
 
     // Grab the indices of the queue families we want for our selected physical device
-    QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+    QueueFamilyIndices indices = getQueueFamilies();
 
     // Setup the creation info for our queues. Note that we need to make sure we don't double up on creating queues.
     // Our indices aren't guaranteed to be unique, which is why we first filter them through a set to get the unique queue indices.
@@ -412,7 +416,7 @@ void RenderInstance::createRealSwapChain() {
     };
 
     // Set the image sharing mode based on whether the graphics and present queues are different
-    QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+    QueueFamilyIndices indices = getQueueFamilies();
     uint32_t queueFamilyIndices[] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
     if (indices.graphicsFamily != indices.presentFamily) {
         swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
@@ -484,7 +488,7 @@ VkExtent2D RenderInstance::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capa
     return actualExtent;
 }
 
-QueueFamilyIndices RenderInstance::getQueueFamilies() {
+inline QueueFamilyIndices RenderInstance::getQueueFamilies() {
     return findQueueFamilies(physicalDevice);
 }
 
@@ -559,4 +563,17 @@ void RenderInstance::cleanupRealSwapChain() {
         vkDestroyImageView(device, imageView, nullptr);
     }
     vkDestroySwapchainKHR(device, swapChain, nullptr);
+}
+
+void RenderInstance::createCommandPool() {
+    QueueFamilyIndices queueFamilyIndices = getQueueFamilies();
+
+    // Create the command pool
+    VkCommandPoolCreateInfo poolInfo {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = queueFamilyIndices.graphicsFamily.value(),
+    };
+
+    VK_ERR(vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool), "failed to create command pool!");
 }

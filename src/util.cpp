@@ -1,5 +1,6 @@
 #include <vulkan/vulkan.h>
 
+#include "instance.hpp"
 #include "util.hpp"
 
 VkImageView createImageView(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) {
@@ -27,4 +28,39 @@ VkImageView createImageView(VkDevice device, VkImage image, VkFormat format, VkI
     VK_ERR(vkCreateImageView(device, &imageViewCreateInfo, nullptr, &result), "failed to create image view!");
 
     return result;
+}
+
+// Create a command buffer that will be used for a single time
+VkCommandBuffer beginSingleUseCBuffer(RenderInstance const& renderInstance) {
+    VkCommandBufferAllocateInfo commandBufferAllocInfo {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = renderInstance.commandPool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+
+    VkCommandBuffer commandBuffer;
+    VK_ERR(vkAllocateCommandBuffers(renderInstance.device, &commandBufferAllocInfo, &commandBuffer), "failed to allocate command buffer!");
+
+    VkCommandBufferBeginInfo beginInfo {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+    VK_ERR(vkBeginCommandBuffer(commandBuffer, &beginInfo), "failed to begin command buffer!");
+
+    return commandBuffer;
+}
+
+void endSingleUseCBuffer(RenderInstance const& renderInstance, VkCommandBuffer commandBuffer) {
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &commandBuffer,
+    };
+    vkQueueSubmit(renderInstance.graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(renderInstance.graphicsQueue);
+
+    vkFreeCommandBuffers(renderInstance.device, renderInstance.commandPool, 1, &commandBuffer);
 }
