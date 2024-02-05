@@ -109,12 +109,6 @@ const std::vector<uint16_t> indices = {
     4, 5, 6, 4, 6, 7
 };
 
-// View and projection matrices for the vertex shader
-struct ViewProjMatrices {
-    Mat4<float> view;
-    Mat4<float> proj;
-};
-
 class VKRendererApp {
 public:
     void run() {
@@ -806,9 +800,33 @@ private:
             {
                 .name = "ROOT NODE",
                 .transform = linear::M4F_IDENTITY,
+                .invTransform = linear::M4F_IDENTITY,
                 .meshIndex = 0,
             },
+            {
+                .name = "ROOT NODE2",
+                .transform = linear::rotate(1.0f, Vec3<float>(0.0f, 1.0f, 0.0f)),
+                .invTransform = linear::rotate(-1.0f, Vec3<float>(0.0f, 1.0f, 0.0f)),
+                .childIndices = { 0 },
+                .meshIndex = 1,
+            },
+            {
+                .name = "CAMERA NODE",
+                .transform = linear::M4F_IDENTITY,
+                .invTransform = linear::lookAt(Vec3<float>(2.0f), Vec3<float>(0.0f), Vec3<float>(0.0f, 0.0f, 1.0f)),
+                .cameraIndex = 0,
+            },
         };
+        scene.cameras = {
+            {
+                .aspectRatio = renderInstance->renderImageExtent.width / (float) renderInstance->renderImageExtent.height,
+                .vFov = DEG2RADF(60.0f),
+                .nearZ = 0.1f,
+                .farZ = 10.0f,
+            },
+        };
+        scene.selectedCamera = 0;
+        scene.sceneRoots = {0, 1, 2};
         scene.vertexBufferFromBuffer(renderInstance, vertices.data(), sizeof(Vertex) * vertices.size());
 
         while (!renderInstance->shouldClose()) {
@@ -840,11 +858,13 @@ private:
         // Only reset the fence if we are going to be submitting work
         vkResetFences(renderInstance->device, 1, &inFlightFences[currentFrame]);
 
+        // Update our viewProj matrices from our camera
+        scene.updateCameraTransform();
+        memcpy(uniformBuffersMaps[currentFrame], &scene.viewProj, sizeof(scene.viewProj));
+
         // Record our render commands
         vkResetCommandBuffer(commandBuffers[currentFrame], 0);
         recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
-
-        updateViewProjMatrices(currentFrame);
 
         // Submit our command buffer for rendering!
         VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
@@ -947,17 +967,6 @@ private:
         vkCmdEndRenderPass(commandBuffer);
 
         VK_ERR(vkEndCommandBuffer(commandBuffer), "failed to record command buffer!");
-    }
-
-    void updateViewProjMatrices(uint32_t currentImage) {
-        Mat4<float> view = linear::lookAt(Vec3<float>(2.0f), Vec3<float>(0.0f), Vec3<float>(0.0f, 0.0f, 1.0f));
-        Mat4<float> proj = linear::perspective(DEG2RADF(60.0), renderInstance->renderImageExtent.width / (float) renderInstance->renderImageExtent.height, 0.1f, 10.0f);
-        ViewProjMatrices mvp {
-            .view = view,
-            .proj = proj,
-        };
-
-        memcpy(uniformBuffersMaps[currentImage], &mvp, sizeof(mvp));
     }
 
     void recreateFramebuffers() {

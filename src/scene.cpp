@@ -12,8 +12,12 @@
 #include "util.hpp"
 
 void Scene::renderScene(SceneRenderInfo const& sceneRenderInfo) {
-    // Temporary scene renderer: act as the first node is the only root
-    renderNode(sceneRenderInfo, 0, linear::M4F_IDENTITY);
+    for (uint32_t rootNode : sceneRoots) {
+        if (rootNode >= nodes.size()) {
+            throw std::runtime_error(string_format("node %u out of range is listed as scene root!", rootNode));
+        }
+        renderNode(sceneRenderInfo, rootNode, linear::M4F_IDENTITY);
+    }
 }
 
 void Scene::renderNode(SceneRenderInfo const& sceneRenderInfo, uint32_t nodeId, Mat4<float> const& parentToWorldTransform) {
@@ -86,4 +90,65 @@ uint32_t Scene::vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderIn
     copyBuffers(*renderInstance, bufferCopyInfos, 1);
 
     return buffers.size() - 1;
+}
+
+void Scene::updateCameraTransform() {
+    // Calculate the projection matrix
+    if (selectedCamera >= cameras.size()) {
+        throw std::runtime_error(string_format("selected camera %u is out of range!", selectedCamera));
+    }
+    Camera& camera = cameras[selectedCamera];
+
+    if (camera.farZ.has_value()) {
+        viewProj.proj = linear::perspective(camera.vFov, camera.aspectRatio, camera.nearZ, camera.farZ.value());
+    }
+    else {
+        viewProj.proj = linear::infinitePerspective(camera.vFov, camera.aspectRatio, camera.nearZ);
+    }
+
+    // Find the worldToLocal transform for the selected camera to serve as the view matrix
+    bool foundCamera = false;
+    for (uint32_t rootNode : sceneRoots) {
+        if (rootNode >= nodes.size()) {
+            throw std::runtime_error(string_format("node %u out of range is listed as scene root!", rootNode));
+        }
+
+        std::optional<Mat4<float>> worldToLocal = findCameraWTLTransform(rootNode, selectedCamera);
+        if (worldToLocal.has_value()) {
+            viewProj.view = worldToLocal.value();
+            foundCamera = true;
+            break;
+        }
+    }
+
+    if (!foundCamera) {
+        throw std::runtime_error(string_format("selected camera %u is not in scene!", selectedCamera));
+    }
+}
+
+std::optional<Mat4<float>> Scene::findCameraWTLTransform(uint32_t nodeId, uint32_t cameraId) {
+    // Sanity check that we are rendering a valid node - we should already be checking in the relevant areas
+    if (nodeId >= nodes.size()) {
+        throw std::runtime_error(string_format("tried to render node %u out of range!", nodeId));
+    }
+    Node& node = nodes[nodeId];
+
+    // If node has camera, send parentToLocal transform
+    if (node.cameraIndex.has_value() && node.cameraIndex.value() == cameraId) {
+        return node.invTransform;
+    };
+
+    for (uint32_t childId : node.childIndices) {
+        if (childId >= nodes.size()) {
+            throw std::runtime_error(string_format("node %s has node %u out of range as child!", node.name.c_str(), childId));
+        }
+
+        std::optional<Mat4<float>> localToChild = findCameraWTLTransform(childId, cameraId);
+        if (localToChild.has_value()) {
+            // Found camera in child, so accumulate transform upwards
+            return linear::mmul(node.invTransform, localToChild.value());
+        }
+    }
+
+    return std::nullopt;
 }

@@ -8,16 +8,25 @@
 #include "instance.hpp"
 #include "linear.hpp"
 
+// View and projection matrices for the vertex shader
+struct ViewProjMatrices {
+    Mat4<float> view;
+    Mat4<float> proj;
+};
+
+// Data required for rendering, but not managed by the scene
 struct SceneRenderInfo {
     VkCommandBuffer commandBuffer;
     VkPipelineLayout pipelineLayout;
 };
 
+// Scene class & container structs
 struct Node {
     std::string name;
 
     // Node properties
     Mat4<float> transform;
+    Mat4<float> invTransform;
     std::vector<uint32_t> childIndices;
 
     // Attached mesh/cameras
@@ -34,16 +43,31 @@ struct Mesh {
     uint32_t vertexBufferOffset;
 };
 
+struct Camera {
+    float aspectRatio;
+    float vFov;
+    float nearZ;
+    std::optional<float> farZ;
+};
+
 class Scene {
 public:
     void renderScene(SceneRenderInfo const& sceneRenderInfo);
+    void updateCameraTransform();
+    uint32_t selectedCamera;
+
+    // We store a copy of our viewProj matrices for culling as well
+    ViewProjMatrices viewProj;
 //private:
     void renderNode(SceneRenderInfo const& sceneRenderInfo, uint32_t nodeId, Mat4<float> const& parentToWorldTransform);
     void renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, Mat4<float> const& worldTransform);
 
     uint32_t vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderInstance, const void* inBuffer, uint32_t size);
+    std::optional<Mat4<float>> findCameraWTLTransform(uint32_t nodeId, uint32_t cameraId);
 
+    std::vector<uint32_t> sceneRoots;
     std::vector<Node> nodes;
     std::vector<Mesh> meshes;
+    std::vector<Camera> cameras;
     std::vector<CombinedBuffer> buffers;
 };
