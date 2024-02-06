@@ -19,5 +19,5 @@ layout(push_constant) uniform pc {
 void main() {
     gl_Position = viewProj.proj * viewProj.view * model * vec4(inPosition, 1.0);
     fragColor = inColor;
-    fragNormal = inNormal;
+    fragNormal = mat3(transpose(inverse(model))) * inNormal;
 }

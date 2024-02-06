@@ -1,6 +1,5 @@
 #include <vulkan/vulkan.h>
 
-#include <iostream>
 #include <memory>
 #include <stdexcept>
 
@@ -89,7 +88,11 @@ void Scene::updateCameraTransform() {
 
         std::optional<Mat4<float>> worldToLocal = findCameraWTLTransform(rootNode, selectedCamera);
         if (worldToLocal.has_value()) {
-            viewProj.view = worldToLocal.value();
+            // After getting worldToLocal, we need to flip the Y and Z coordinates to get our camera propertly oriented
+            Mat4<float> flipYZ = linear::M4F_IDENTITY;
+            flipYZ.at(1,1) = -1;
+            flipYZ.at(2,2) = -1;
+            viewProj.view = linear::mmul(flipYZ, worldToLocal.value());
             foundCamera = true;
             break;
         }
@@ -120,7 +123,7 @@ std::optional<Mat4<float>> Scene::findCameraWTLTransform(uint32_t nodeId, uint32
         std::optional<Mat4<float>> localToChild = findCameraWTLTransform(childId, cameraId);
         if (localToChild.has_value()) {
             // Found camera in child, so accumulate transform upwards
-            return linear::mmul(node.invTransform, localToChild.value());
+            return linear::mmul(localToChild.value(), node.invTransform);
         }
     }
 

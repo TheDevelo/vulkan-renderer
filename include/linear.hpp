@@ -337,7 +337,7 @@ namespace linear {
         Mat4<T> result(static_cast<T>(0));
         result.at(0, 0) = invTanHalfFovy / aspect;
         result.at(1, 1) = invTanHalfFovy;
-        result.at(2, 2) = 1;
+        result.at(2, 2) = static_cast<T>(1);
         result.at(2, 3) = static_cast<T>(1);
         result.at(3, 2) = -zNear;
         return result;
@@ -393,54 +393,32 @@ namespace linear {
     // Quaternion rotation was adapted from Wikipedia
     template<typename T>
     Mat4<T> localToParent(Vec3<T> t, Vec4<T> q, Vec3<T> s) {
-        // Start by building the rotation matrix, then add in scale and translation (construction this way is more useful for PTL)
         Mat4<T> result {
-            1 - 2*(q.y*q.y + q.z*q.z),     2*(q.x*q.y + q.z*q.w),     2*(q.x*q.z - q.y*q.w), static_cast<T>(0),
-                2*(q.x*q.y - q.z*q.w), 1 - 2*(q.x*q.x + q.z*q.z),     2*(q.y*q.z + q.x*q.w), static_cast<T>(0),
-                2*(q.x*q.z + q.y*q.w),     2*(q.y*q.z - q.x*q.w), 1 - 2*(q.x*q.x + q.y*q.y), static_cast<T>(0),
-            static_cast<T>(0)        , static_cast<T>(0)        , static_cast<T>(0)        , static_cast<T>(1),
+            s.x * (1 - 2*(q.y*q.y + q.z*q.z)), s.x *      2*(q.x*q.y + q.z*q.w) , s.x *      2*(q.x*q.z - q.y*q.w) , static_cast<T>(0),
+            s.y *      2*(q.x*q.y - q.z*q.w) , s.y * (1 - 2*(q.x*q.x + q.z*q.z)), s.y *      2*(q.y*q.z + q.x*q.w) , static_cast<T>(0),
+            s.z *      2*(q.x*q.z + q.y*q.w) , s.z *      2*(q.y*q.z - q.x*q.w) , s.z * (1 - 2*(q.x*q.x + q.y*q.y)), static_cast<T>(0),
+            t.x                              , t.y                              , t.z                              , static_cast<T>(1),
         };
-        result.at(0, 0) *= s.x;
-        result.at(0, 1) *= s.x;
-        result.at(0, 2) *= s.x;
-        result.at(1, 0) *= s.y;
-        result.at(1, 1) *= s.y;
-        result.at(1, 2) *= s.y;
-        result.at(2, 0) *= s.z;
-        result.at(2, 1) *= s.z;
-        result.at(2, 2) *= s.z;
-        result.at(3, 0) = t.x;
-        result.at(3, 1) = t.y;
-        result.at(3, 2) = t.z;
         return result;
     }
 
     template<typename T>
-    Mat4<T> parentToLocal(Vec3<T> t, Vec4<T> q, Vec3<T> s) {
-        // Invert our translation, rotation, and scale
-        t = t * static_cast<T>(-1);
-        q = Vec4<T>(-q.x, -q.y, -q.z, q.w);
-        s = Vec3<T>(1 / s.x, 1 / s.y, 1 / s.z);
+    Mat4<T> parentToLocal(Vec3<T> tn, Vec4<T> qn, Vec3<T> sn) {
+        // Invert our translation, rotation, and scale. Then adjust our inverted translation so that it ends up corect after rotation/scaling
+        Vec4<T> t = Vec4<T>(-tn.x, -tn.y, -tn.z, static_cast<T>(1));
+        Vec4<T> q = Vec4<T>(-qn.x, -qn.y, -qn.z, qn.w);
+        Vec3<T> s = Vec3<T>(1 / sn.x, 1 / sn.y, 1 / sn.z);
 
         Mat4<T> result {
-            1 - 2*(q.y*q.y + q.z*q.z),     2*(q.x*q.y + q.z*q.w),     2*(q.x*q.z - q.y*q.w), static_cast<T>(0),
-                2*(q.x*q.y - q.z*q.w), 1 - 2*(q.x*q.x + q.z*q.z),     2*(q.y*q.z + q.x*q.w), static_cast<T>(0),
-                2*(q.x*q.z + q.y*q.w),     2*(q.y*q.z - q.x*q.w), 1 - 2*(q.x*q.x + q.y*q.y), static_cast<T>(0),
-            static_cast<T>(0)        , static_cast<T>(0)        , static_cast<T>(0)        , static_cast<T>(1),
+            s.x * (1 - 2*(q.y*q.y + q.z*q.z)), s.x *      2*(q.x*q.y + q.z*q.w) , s.x *      2*(q.x*q.z - q.y*q.w) , static_cast<T>(0),
+            s.y *      2*(q.x*q.y - q.z*q.w) , s.y * (1 - 2*(q.x*q.x + q.z*q.z)), s.y *      2*(q.y*q.z + q.x*q.w) , static_cast<T>(0),
+            s.z *      2*(q.x*q.z + q.y*q.w) , s.z *      2*(q.y*q.z - q.x*q.w) , s.z * (1 - 2*(q.x*q.x + q.y*q.y)), static_cast<T>(0),
+            static_cast<T>(0)                , static_cast<T>(0)                , static_cast<T>(0)                , static_cast<T>(1),
         };
-        // Can't just use our inverted translation, we also need to apply scale and rotation to it first
-        result.at(3, 0) = s.x * (t.x * result.at(0, 0) + t.y * result.at(0, 1) * t.z * result.at(0, 2));
-        result.at(3, 0) = s.y * (t.x * result.at(1, 0) + t.y * result.at(1, 1) * t.z * result.at(1, 2));
-        result.at(3, 0) = s.z * (t.x * result.at(2, 0) + t.y * result.at(2, 1) * t.z * result.at(2, 2));
-        result.at(0, 0) *= s.x;
-        result.at(0, 1) *= s.x;
-        result.at(0, 2) *= s.x;
-        result.at(1, 0) *= s.y;
-        result.at(1, 1) *= s.y;
-        result.at(1, 2) *= s.y;
-        result.at(2, 0) *= s.z;
-        result.at(2, 1) *= s.z;
-        result.at(2, 2) *= s.z;
+        t = mmul(result, t);
+        result.at(3, 0) = t.x;
+        result.at(3, 1) = t.y;
+        result.at(3, 2) = t.z;
         return result;
     }
 }
