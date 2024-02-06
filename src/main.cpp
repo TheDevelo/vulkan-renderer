@@ -26,8 +26,8 @@ const int MAX_FRAMES_IN_FLIGHT = 2;
 // Vertex struct for Vulkan
 struct Vertex {
     Vec3<float> pos;
-    Vec3<float> color;
-    Vec2<float> texUV;
+    Vec3<float> normal;
+    Vec4<uint8_t> color;
 
     static VkVertexInputBindingDescription getBindingDescription() {
         VkVertexInputBindingDescription bindingDescription {
@@ -51,13 +51,13 @@ struct Vertex {
                 .location = 1,
                 .binding = 0,
                 .format = VK_FORMAT_R32G32B32_SFLOAT,
-                .offset = offsetof(Vertex, color),
+                .offset = offsetof(Vertex, normal),
             },
             {
                 .location = 2,
                 .binding = 0,
-                .format = VK_FORMAT_R32G32_SFLOAT,
-                .offset = offsetof(Vertex, texUV),
+                .format = VK_FORMAT_R8G8B8A8_UNORM,
+                .offset = offsetof(Vertex, color),
             }
         }};
 
@@ -66,23 +66,14 @@ struct Vertex {
 };
 
 const std::vector<Vertex> vertices = {
-    {{0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-    {{1.5f, 0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-    {{1.5f, 1.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
-    {{0.5f, 1.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-
-    {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-    {{0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-    {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f, 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-    {{-0.5f, 0.5f, 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {255, 255, 255, 255}},
+    {{1.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {255, 0, 0, 255}},
+    {{1.5f, 1.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0, 255, 0, 255}},
+    {{0.5f, 1.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0, 0, 255, 255}},
+    {{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {255, 255, 255, 128}},
+    {{0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {255, 0, 0, 128}},
+    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0, 255, 0, 128}},
+    {{-0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0, 0, 255, 128}},
 };
 
 const std::vector<uint16_t> indices = {
@@ -97,6 +88,7 @@ public:
         initVulkan();
         // Load our scene
         scene = Scene(renderInstance, "test/sg-Articulation.s72");
+        scene.selectedCamera = 0;
         mainLoop();
     }
 

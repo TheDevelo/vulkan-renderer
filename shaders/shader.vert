@@ -6,11 +6,11 @@ layout(binding = 0) uniform MVPMatrices {
 } viewProj;
 
 layout(location = 0) in vec3 inPosition;
-layout(location = 1) in vec3 inColor;
-layout(location = 2) in vec2 inTexUV;
+layout(location = 1) in vec3 inNormal;
+layout(location = 2) in vec4 inColor;
 
-layout(location = 0) out vec3 fragColor;
-layout(location = 1) out vec2 fragTexUV;
+layout(location = 0) out vec4 fragColor;
+layout(location = 1) out vec3 fragNormal;
 
 layout(push_constant) uniform pc {
     mat4 model;
@@ -19,5 +19,5 @@ layout(push_constant) uniform pc {
 void main() {
     gl_Position = viewProj.proj * viewProj.view * model * vec4(inPosition, 1.0);
     fragColor = inColor;
-    fragTexUV = inTexUV;
+    fragNormal = inNormal;
 }

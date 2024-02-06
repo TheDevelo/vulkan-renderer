@@ -3,7 +3,6 @@
 #include <filesystem>
 #include <map>
 #include <cstring>
-#include <iostream>
 
 #include "json.hpp"
 #include "scene.hpp"
@@ -86,7 +85,6 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     // Iterate through all the nodes and construct their Node representation
     for (auto idPair : nodeIdMap) {
         uint32_t s72Id = idPair.first;
-        std::cout << s72Id << " " << idPair.second << std::endl;
         json::object const& nodeObj = sceneArr[s72Id].as_obj();
 
         // Get translation, rotation, and scale vectors
@@ -125,7 +123,6 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         }
         if (nodeObj.contains("camera")) {
             uint32_t jsonId = nodeObj.at("camera").as_num();
-            std::cout << "CAM:" << jsonId << " " << cameraIdMap.at(jsonId) << std::endl;
             node.cameraIndex = cameraIdMap.at(jsonId);
         }
         // Add child nodes
@@ -161,7 +158,6 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     std::unique_ptr<char[]> buffer(new char[totalBufferSize]);
     for (auto idPair : meshIdMap) {
         uint32_t s72Id = idPair.first;
-        std::cout << s72Id << " " << idPair.second << std::endl;
         json::object const& meshObj = sceneArr[s72Id].as_obj();
 
         if (!meshObj.contains("attributes") || !meshObj.at("attributes").is_obj()) {
@@ -196,7 +192,6 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     // Iterate through all the cameras and construct their Camera representation
     for (auto idPair : cameraIdMap) {
         uint32_t s72Id = idPair.first;
-        std::cout << s72Id << " " << idPair.second << std::endl;
         json::object const& cameraObj = sceneArr[s72Id].as_obj();
 
         if (!cameraObj.contains("perspective") || !cameraObj.at("perspective").is_obj()) {
