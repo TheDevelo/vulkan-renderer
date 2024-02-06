@@ -44,6 +44,8 @@ struct Mesh {
 };
 
 struct Camera {
+    std::string name;
+
     float aspectRatio;
     float vFov;
     float nearZ;
@@ -52,13 +54,16 @@ struct Camera {
 
 class Scene {
 public:
+    Scene() = default;
+    explicit Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const& filename);
+
     void renderScene(SceneRenderInfo const& sceneRenderInfo);
     void updateCameraTransform();
-    uint32_t selectedCamera;
+    uint32_t selectedCamera = 0;
 
     // We store a copy of our viewProj matrices for culling as well
     ViewProjMatrices viewProj;
-//private:
+private:
     void renderNode(SceneRenderInfo const& sceneRenderInfo, uint32_t nodeId, Mat4<float> const& parentToWorldTransform);
     void renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, Mat4<float> const& worldTransform);
 

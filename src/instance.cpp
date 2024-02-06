@@ -152,7 +152,7 @@ void RenderInstance::initVulkanInstance() {
 
     if (enableValidationLayers) {
         if (!checkValidationLayerSupport()) {
-            throw std::runtime_error("validation layers requested, but not available!");
+            PANIC("validation layers requested, but not available!");
         }
 
         instanceCreateInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
@@ -211,7 +211,7 @@ void RenderInstance::initVulkanDevice() {
     uint32_t deviceCount = 0;
     vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
     if (deviceCount == 0) {
-        throw std::runtime_error("failed to find GPUs with Vulkan support!");
+        PANIC("failed to find GPUs with Vulkan support!");
     }
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
@@ -225,7 +225,7 @@ void RenderInstance::initVulkanDevice() {
     }
 
     if (physicalDevice == VK_NULL_HANDLE) {
-        throw std::runtime_error("failed to find a suitable GPU!");
+        PANIC("failed to find a suitable GPU!");
     }
 
     // Grab the indices of the queue families we want for our selected physical device

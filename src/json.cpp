@@ -5,6 +5,7 @@
 #include <stdexcept>
 
 #include "json.hpp"
+#include "util.hpp"
 
 // Helpers for parsing from the stream
 void skipWhitespace(std::istream& stream) {
@@ -18,7 +19,7 @@ void skipWhitespace(std::istream& stream) {
 char peekEOF(std::istream& stream) {
     char c = stream.peek();
     if (c == std::iostream::traits_type::eof()) {
-        throw std::runtime_error("JSON parsing error: reached EOF");
+        PANIC("JSON parsing error: reached EOF");
     }
 
     return c;
@@ -27,7 +28,7 @@ char peekEOF(std::istream& stream) {
 char getEOF(std::istream& stream) {
     char c = stream.get();
     if (c == std::iostream::traits_type::eof()) {
-        throw std::runtime_error("JSON parsing error: reached EOF");
+        PANIC("JSON parsing error: reached EOF");
     }
 
     return c;
@@ -37,7 +38,7 @@ void consumeExact(std::istream& stream, std::string const& expectation) {
     for (char expectedC : expectation) {
         char c = getEOF(stream);
         if (c != expectedC) {
-            throw std::runtime_error("JSON parsing error: literal does not match expected value");
+            PANIC("JSON parsing error: literal does not match expected value");
         }
     }
 }
@@ -67,7 +68,7 @@ std::string readString(std::istream& stream) {
                 result += '\t';
             }
             else {
-                throw std::runtime_error("JSON parsing error: encountered invalid string escape code");
+                PANIC("JSON parsing error: encountered invalid string escape code");
             }
         }
         else {
@@ -103,7 +104,7 @@ double readNumber(std::istream& stream) {
     }
     else if (c != '0') {
         // Not a digit
-        throw std::runtime_error("JSON parsing error: expected digit in number, found non-digit");
+        PANIC("JSON parsing error: expected digit in number, found non-digit");
     }
 
     // Fractional part
@@ -114,7 +115,7 @@ double readNumber(std::istream& stream) {
 
         c = peekEOF(stream);
         if (c < '0' || c > '9') {
-            throw std::runtime_error("JSON parsing error: no digits in fractional part");
+            PANIC("JSON parsing error: no digits in fractional part");
         }
         while (c >= '0' && c <= '9') {
             numStr += c;
@@ -135,7 +136,7 @@ double readNumber(std::istream& stream) {
 
         c = peekEOF(stream);
         if (c < '0' || c > '9') {
-            throw std::runtime_error("JSON parsing error: no digits in exponential part");
+            PANIC("JSON parsing error: no digits in exponential part");
         }
         while (c >= '0' && c <= '9') {
             numStr += c;
@@ -161,7 +162,7 @@ namespace json {
         if (c == '{') {
             // Object
             stream.get(); // Chomp off the initial {
-            std::map<std::string, Value> objVals;
+            object objVals;
 
             // Check if our object is fully empty, or if it has values within
             skipWhitespace(stream);
@@ -176,7 +177,7 @@ namespace json {
                     skipWhitespace(stream);
                     c = getEOF(stream);
                     if (c != '"') {
-                        throw std::runtime_error("JSON parsing error: expected string as object key, found non-string");
+                        PANIC("JSON parsing error: expected string as object key, found non-string");
                     }
                     std::string key = readString(stream);
 
@@ -184,7 +185,7 @@ namespace json {
                     skipWhitespace(stream);
                     c = getEOF(stream);
                     if (c != ':') {
-                        throw std::runtime_error("JSON parsing error: expected : between key and value");
+                        PANIC("JSON parsing error: expected : between key and value");
                     }
                     Value objVal = parseValue(data, stream);
                     objVals.insert_or_assign(key, objVal);
@@ -197,7 +198,7 @@ namespace json {
                     }
                     else if (c != ',') {
                         // Not a comma or an object end, so invalid
-                        throw std::runtime_error("JSON parsing error: found invalid character between object values");
+                        PANIC("JSON parsing error: found invalid character between object values");
                     }
                 }
             }
@@ -208,7 +209,7 @@ namespace json {
         else if (c == '[') {
             // Array
             stream.get(); // Chomp off the initial [
-            std::vector<Value> arrVals;
+            array arrVals;
 
             // Check if our array is fully empty, or if it has values within
             skipWhitespace(stream);
@@ -227,7 +228,7 @@ namespace json {
                     }
                     else if (c != ',') {
                         // Not a comma or an array end, so invalid
-                        throw std::runtime_error("JSON parsing error: found invalid character between array values");
+                        PANIC("JSON parsing error: found invalid character between array values");
                     }
                 }
             }
@@ -264,7 +265,7 @@ namespace json {
             v = Value(data, 0, JSON_NULL);
         }
         else {
-            throw std::runtime_error("JSON parsing error: encountered invalid value");
+            PANIC("JSON parsing error: encountered invalid value");
         }
 
         skipWhitespace(stream);
@@ -277,7 +278,7 @@ namespace json {
         Value root = parseValue(data, stream);
 
         if (stream.peek() != std::iostream::traits_type::eof()) {
-            throw std::runtime_error("JSON parsing error: file has unused trailing data");
+            PANIC("JSON parsing error: file has unused trailing data");
         }
 
         return root;
@@ -293,69 +294,51 @@ namespace json {
         return parseStream(in);
     }
 
-    std::optional<std::map<std::string, Value>> const& Value::as_obj() const {
-        static std::optional<std::map<std::string, Value>> const empty;
-        if (valType == JSON_OBJ) {
-            return data->objects[index];
+    object const& Value::as_obj() const {
+        if (valType != JSON_OBJ) {
+            PANIC("JSON ERROR: as_obj called on non-obj");
         }
-        else {
-            return empty;
-        }
+        return data->objects[index];
     }
 
-    std::optional<std::vector<Value>> const& Value::as_arr() const {
-        static std::optional<std::vector<Value>> const empty;
-        if (valType == JSON_ARR) {
-            return data->arrays[index];
+    array const& Value::as_arr() const {
+        if (valType != JSON_ARR) {
+            PANIC("JSON ERROR: as_arr called on non-arr");
         }
-        else {
-            return empty;
-        }
+        return data->arrays[index];
     }
 
-    std::optional<std::string> const& Value::as_str() const {
-        static std::optional<std::string> const empty;
-        if (valType == JSON_STR) {
-            return data->strings[index];
+    std::string const& Value::as_str() const {
+        if (valType != JSON_STR) {
+            PANIC("JSON ERROR: as_str called on non-str");
         }
-        else {
-            return empty;
-        }
+        return data->strings[index];
     }
 
-    std::optional<double> const& Value::as_num() const {
-        static std::optional<double> const empty;
-        if (valType == JSON_NUM) {
-            return data->numbers[index];
+    double const& Value::as_num() const {
+        if (valType != JSON_NUM) {
+            PANIC("JSON ERROR: as_num called on non-num");
         }
-        else {
-            return empty;
-        }
+        return data->numbers[index];
     }
 
-    std::optional<bool> const& Value::as_bool() const {
-        static std::optional<bool> const true_value(true);
-        static std::optional<bool> const false_value(true);
-        static std::optional<bool> const empty;
+    bool Value::as_bool() const {
         if (valType == JSON_BOOL_TRUE) {
-            return true_value;
+            return true;
         }
         else if (valType == JSON_BOOL_FALSE) {
-            return false_value;
+            return false;
         }
         else {
-            return empty;
+            PANIC("JSON ERROR: as_bool called on non-bool");
         }
     }
 
-    std::optional<std::nullptr_t> const& Value::as_null() const {
-        static std::optional<std::nullptr_t> const null_value(nullptr);
-        static std::optional<std::nullptr_t> const empty;
-        if (valType == JSON_NULL) {
-            return null_value;
+    std::nullptr_t Value::as_null() const {
+        if (valType != JSON_NULL) {
+            PANIC("JSON ERROR: as_null called on non-null");
         }
-        else {
-            return empty;
-        }
+
+        return nullptr;
     }
 };

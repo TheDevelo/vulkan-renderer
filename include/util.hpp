@@ -7,14 +7,18 @@
 
 #include "instance.hpp"
 
-// Error handling macro
+// Error handling macros
 #define VK_ERR(res, msg) if (res != VK_SUCCESS) { throw std::runtime_error(msg); }
+#define PANIC(msg) throw std::runtime_error(msg)
 
 VkImageView createImageView(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
 
 // Single use command buffer helpers
 VkCommandBuffer beginSingleUseCBuffer(RenderInstance const& renderInstance);
 void endSingleUseCBuffer(RenderInstance const& renderInstance, VkCommandBuffer commandBuffer);
+
+// Reading file to buffer helper
+std::vector<char> readFile(const std::string& filename);
 
 // String formatting function, since apparently my gcc doesn't support the c++20 string formatting library???
 template<typename ...Args>

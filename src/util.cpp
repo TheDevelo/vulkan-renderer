@@ -1,5 +1,7 @@
 #include <vulkan/vulkan.h>
 
+#include <fstream>
+
 #include "instance.hpp"
 #include "util.hpp"
 
@@ -63,4 +65,22 @@ void endSingleUseCBuffer(RenderInstance const& renderInstance, VkCommandBuffer c
     vkQueueWaitIdle(renderInstance.graphicsQueue);
 
     vkFreeCommandBuffers(renderInstance.device, renderInstance.commandPool, 1, &commandBuffer);
+}
+
+// Helper function to read files into a vector of chars
+std::vector<char> readFile(const std::string& filename) {
+    std::ifstream file(filename, std::ios::ate | std::ios::binary);
+    if (!file.is_open()) {
+        PANIC("failed to open file!");
+    }
+
+    size_t fileSize = (size_t) file.tellg();
+    std::vector<char> buffer(fileSize);
+
+    file.seekg(0);
+    file.read(buffer.data(), fileSize);
+
+    file.close();
+
+    return buffer;
 }

@@ -65,5 +65,5 @@ uint32_t findMemoryType(RenderInstance const& renderInstance, uint32_t typeFilte
         }
     }
 
-    throw std::runtime_error("failed to find suitable memory type!");
+    PANIC("failed to find suitable memory type!");
 }

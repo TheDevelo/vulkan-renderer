@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <fstream>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -23,24 +22,6 @@
 #include "util.hpp"
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
-
-// Helper function to read files into a vector of chars
-static std::vector<char> readFile(const std::string& filename) {
-    std::ifstream file(filename, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("failed to open file!");
-    }
-
-    size_t fileSize = (size_t) file.tellg();
-    std::vector<char> buffer(fileSize);
-
-    file.seekg(0);
-    file.read(buffer.data(), fileSize);
-
-    file.close();
-
-    return buffer;
-}
 
 // Vertex struct for Vulkan
 struct Vertex {
@@ -114,6 +95,8 @@ public:
     void run() {
         initRenderInstance();
         initVulkan();
+        // Load our scene
+        scene = Scene(renderInstance, "test/sg-Articulation.s72");
         mainLoop();
     }
 
@@ -479,7 +462,7 @@ private:
         int textureWidth, textureHeight, textureChannels;
         stbi_uc* pixels = stbi_load("textures/marble.png", &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);
         if (!pixels) {
-            throw std::runtime_error("failed to load texture image!");
+            PANIC("failed to load texture image!");
         }
 
         // Create a staging buffer for our image
@@ -783,52 +766,6 @@ private:
     }
 
     void mainLoop() {
-        // TODO: Real scene loader (any maybe not in mainLoop)?
-        scene.meshes = {
-            {
-                .vertexCount = 6,
-                .vertexBufferIndex = 0,
-                .vertexBufferOffset = 8 * sizeof(Vertex),
-            },
-            {
-                .vertexCount = 3,
-                .vertexBufferIndex = 0,
-                .vertexBufferOffset = 13 * sizeof(Vertex),
-            },
-        };
-        scene.nodes = {
-            {
-                .name = "ROOT NODE",
-                .transform = linear::M4F_IDENTITY,
-                .invTransform = linear::M4F_IDENTITY,
-                .meshIndex = 0,
-            },
-            {
-                .name = "ROOT NODE2",
-                .transform = linear::rotate(1.0f, Vec3<float>(0.0f, 1.0f, 0.0f)),
-                .invTransform = linear::rotate(-1.0f, Vec3<float>(0.0f, 1.0f, 0.0f)),
-                .childIndices = { 0 },
-                .meshIndex = 1,
-            },
-            {
-                .name = "CAMERA NODE",
-                .transform = linear::M4F_IDENTITY,
-                .invTransform = linear::lookAt(Vec3<float>(2.0f), Vec3<float>(0.0f), Vec3<float>(0.0f, 0.0f, 1.0f)),
-                .cameraIndex = 0,
-            },
-        };
-        scene.cameras = {
-            {
-                .aspectRatio = renderInstance->renderImageExtent.width / (float) renderInstance->renderImageExtent.height,
-                .vFov = DEG2RADF(60.0f),
-                .nearZ = 0.1f,
-                .farZ = 10.0f,
-            },
-        };
-        scene.selectedCamera = 0;
-        scene.sceneRoots = {0, 1, 2};
-        scene.vertexBufferFromBuffer(renderInstance, vertices.data(), sizeof(Vertex) * vertices.size());
-
         while (!renderInstance->shouldClose()) {
             renderInstance->processWindowEvents();
 
@@ -852,7 +789,7 @@ private:
             return;
         }
         else if (result == RI_TARGET_FAILURE) {
-            throw std::runtime_error("failed to acquire next image from swap chain!");
+            PANIC("failed to acquire next image from swap chain!");
         }
 
         // Only reset the fence if we are going to be submitting work
@@ -889,7 +826,7 @@ private:
         if (result == RI_TARGET_REBUILD) {
             recreateFramebuffers();
         } else if (result == RI_TARGET_FAILURE) {
-            throw std::runtime_error("failed to present swap chain image!");
+            PANIC("failed to present swap chain image!");
         }
 
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
