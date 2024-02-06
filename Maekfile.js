@@ -40,6 +40,7 @@ const VKRenderer_objs = [
 	maek.CPP('src/instance.cpp'),
 	maek.CPP('src/scene.cpp'),
 	maek.CPP('src/buffer.cpp'),
+	maek.CPP('src/json.cpp'),
 ];
 
 //'[exeFile =] LINK(objFiles, exeFileBase, [, options])' links an array of objects into an executable:
