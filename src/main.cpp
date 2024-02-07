@@ -16,8 +16,9 @@
 #include <cstring>
 
 #include "buffer.hpp"
-#include "linear.hpp"
 #include "instance.hpp"
+#include "linear.hpp"
+#include "options.hpp"
 #include "scene.hpp"
 #include "util.hpp"
 
@@ -84,11 +85,33 @@ const std::vector<uint16_t> indices = {
 class VKRendererApp {
 public:
     void run() {
+        // Init our render instance
         initRenderInstance();
         initVulkan();
+
         // Load our scene
-        scene = Scene(renderInstance, "test/sg-Articulation.s72");
-        scene.selectedCamera = 0;
+        scene = Scene(renderInstance, options::getScenePath());
+        if (options::getDefaultCamera().has_value()) {
+            // Start with the selected camera as the one with the specified name
+            std::string cameraName = options::getDefaultCamera().value();
+            bool foundCamera = false;
+            for (uint32_t i = 0; i < scene.cameras.size(); i++) {
+                if (scene.cameras[i].name == cameraName) {
+                    scene.selectedCamera = i;
+                    foundCamera = true;
+                    break;
+                }
+            }
+
+            if (!foundCamera) {
+                PANIC("failed to find camera specified by --camera");
+            }
+        }
+        else {
+            // Default case: just use the first camera
+            scene.selectedCamera = 0;
+        }
+
         mainLoop();
     }
 
@@ -951,7 +974,38 @@ private:
     }
 };
 
-int main() {
+int main(int argc, char* argv[]) {
+    options::parse(argc, argv);
+    // List all physical devices if requested, and then immediately return
+    if (options::listDevices()) {
+        // Init a basic Vulkan instance
+        VkInstance instance;
+        VkInstanceCreateInfo instanceCreateInfo {
+            .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+            .enabledLayerCount = 0,
+            .enabledExtensionCount = 0,
+        };
+        VK_ERR(vkCreateInstance(&instanceCreateInfo, nullptr, &instance), "failed to create VK instance!");
+
+        // Grab the list of possible physical devices
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+        std::vector<VkPhysicalDevice> devices(deviceCount);
+        vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+        // List each device out
+        VkPhysicalDeviceProperties deviceProps;
+        uint32_t n = 1;
+        for (VkPhysicalDevice device : devices) {
+            vkGetPhysicalDeviceProperties(device, &deviceProps);
+            std::cout << "Device " << n << ": " << deviceProps.deviceName << std::endl;
+            n += 1;
+        }
+
+        vkDestroyInstance(instance, nullptr);
+        return EXIT_SUCCESS;
+    }
+
     VKRendererApp app;
 
     try {

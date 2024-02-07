@@ -59,7 +59,10 @@ public:
 
     void renderScene(SceneRenderInfo const& sceneRenderInfo);
     void updateCameraTransform();
+
+    // Cameras are public so that the "outside" can select change the selected camera
     uint32_t selectedCamera = 0;
+    std::vector<Camera> cameras;
 
     // We store a copy of our viewProj matrices for culling as well
     ViewProjMatrices viewProj;
@@ -73,6 +76,5 @@ private:
     std::vector<uint32_t> sceneRoots;
     std::vector<Node> nodes;
     std::vector<Mesh> meshes;
-    std::vector<Camera> cameras;
     std::vector<CombinedBuffer> buffers;
 };

@@ -322,9 +322,9 @@ namespace linear {
 
         Mat4<T> result(static_cast<T>(0));
         result.at(0, 0) = invTanHalfFovy / aspect;
-        result.at(1, 1) = invTanHalfFovy;
-        result.at(2, 2) = zFar / (zFar - zNear);
-        result.at(2, 3) = static_cast<T>(1);
+        result.at(1, 1) = -invTanHalfFovy;
+        result.at(2, 2) = -zFar / (zFar - zNear);
+        result.at(2, 3) = static_cast<T>(-1);
         result.at(3, 2) = -(zFar * zNear) / (zFar - zNear);
         return result;
     }
@@ -336,9 +336,9 @@ namespace linear {
 
         Mat4<T> result(static_cast<T>(0));
         result.at(0, 0) = invTanHalfFovy / aspect;
-        result.at(1, 1) = invTanHalfFovy;
-        result.at(2, 2) = static_cast<T>(1);
-        result.at(2, 3) = static_cast<T>(1);
+        result.at(1, 1) = -invTanHalfFovy;
+        result.at(2, 2) = static_cast<T>(-1);
+        result.at(2, 3) = static_cast<T>(-1);
         result.at(3, 2) = -zNear;
         return result;
     }
@@ -372,6 +372,7 @@ namespace linear {
     }
 
     // View matrix helper that points a camera at eye to center, with up being the direction of "up"
+    // NOTE: Currently broken, I think? If I need it in the future, then try flipping the sign of u and f
     template<typename T>
     Mat4<T> lookAt(Vec3<T> eye, Vec3<T> center, Vec3<T> up) {
         // We calculate the forward, side, and up directions that the XYZ axes get translated to

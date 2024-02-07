@@ -7,9 +7,11 @@
 #include <optional>
 #include <set>
 #include <vector>
+#include <cstring>
 
-#include "util.hpp"
 #include "instance.hpp"
+#include "options.hpp"
+#include "util.hpp"
 
 // Default window sizes
 const uint32_t WINDOW_W = 800;
@@ -23,12 +25,6 @@ const std::vector<const char*> validationLayers = {
 const std::vector<const char*> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 };
-
-#ifdef NDEBUG
-const bool enableValidationLayers = false;
-#else
-const bool enableValidationLayers = true;
-#endif
 
 // Vulkan extension wrapper functions
 VkResult UVkCreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
@@ -110,7 +106,7 @@ RenderInstance::~RenderInstance() {
     vkDestroyCommandPool(device, commandPool, nullptr);
 
     vkDestroyDevice(device, nullptr);
-    if (enableValidationLayers) {
+    if (options::isValidationEnabled()) {
         UVkDestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
     }
     vkDestroySurfaceKHR(instance, surface, nullptr);
@@ -150,7 +146,7 @@ void RenderInstance::initVulkanInstance() {
         .pfnUserCallback = debugCallback,
     };
 
-    if (enableValidationLayers) {
+    if (options::isValidationEnabled()) {
         if (!checkValidationLayerSupport()) {
             PANIC("validation layers requested, but not available!");
         }
@@ -163,7 +159,7 @@ void RenderInstance::initVulkanInstance() {
     VK_ERR(vkCreateInstance(&instanceCreateInfo, nullptr, &instance), "failed to create VK instance!");
 
     // Create our vulkan validation layer callback if enabled
-    if (enableValidationLayers) {
+    if (options::isValidationEnabled()) {
         VK_ERR(UVkCreateDebugUtilsMessengerEXT(instance, &debugMessengerCreateInfo, nullptr, &debugMessenger), "failed to set up debug messenger!");
     }
 }
@@ -176,7 +172,7 @@ std::vector<const char*> getRequiredExtensions() {
 
     std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtCount);
 
-    if (enableValidationLayers) {
+    if (options::isValidationEnabled()) {
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
@@ -215,6 +211,17 @@ void RenderInstance::initVulkanDevice() {
     }
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+    // List devices if requested
+    if (options::listDevices()) {
+        VkPhysicalDeviceProperties deviceProps;
+        uint32_t n = 1;
+        for (VkPhysicalDevice device : devices) {
+            vkGetPhysicalDeviceProperties(device, &deviceProps);
+            std::cout << "Device " << n << ": " << deviceProps.deviceName << std::endl;
+            n += 1;
+        }
+    }
 
     // Pick the first suitable device
     for (const VkPhysicalDevice& device : devices) {
@@ -262,7 +269,7 @@ void RenderInstance::initVulkanDevice() {
     };
 
     // Enable device-specific validation layers. This only applies to older Vulkan implementations.
-    if (enableValidationLayers) {
+    if (options::isValidationEnabled()) {
         deviceCreateInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
         deviceCreateInfo.ppEnabledLayerNames = validationLayers.data();
     }
@@ -306,10 +313,16 @@ bool RenderInstance::isDeviceSuitable(VkPhysicalDevice device) {
         return false;
     }
 
-    // Lastly, select discrete GPUs only so that we get good performance
-    // This is a bad idea for a real world application, as not all computers have a DGPU
-    // However, since I have one and the test cluster will have one, its fine to do this to filter out my iGPU
-    return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+    if (options::getDevice().has_value()) {
+        // Only return true if the device name matches the one specified
+        return strcmp(deviceProperties.deviceName, options::getDevice().value().c_str()) == 0;
+    }
+    else {
+        // In the case a device is not specified, only approve of a device if it is a dGPU
+        // Is this a good idea in the real world where not everyone has a dGPU? No
+        // Am I doing this because my laptop's iGPU comes before my dGPU, and I don't want to type out my dGPU name? Yes
+        return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+    }
 }
 
 bool checkDeviceExtensionSupport(VkPhysicalDevice device) {

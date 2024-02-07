@@ -89,10 +89,7 @@ void Scene::updateCameraTransform() {
         std::optional<Mat4<float>> worldToLocal = findCameraWTLTransform(rootNode, selectedCamera);
         if (worldToLocal.has_value()) {
             // After getting worldToLocal, we need to flip the Y and Z coordinates to get our camera propertly oriented
-            Mat4<float> flipYZ = linear::M4F_IDENTITY;
-            flipYZ.at(1,1) = -1;
-            flipYZ.at(2,2) = -1;
-            viewProj.view = linear::mmul(flipYZ, worldToLocal.value());
+            viewProj.view = worldToLocal.value();
             foundCamera = true;
             break;
         }
