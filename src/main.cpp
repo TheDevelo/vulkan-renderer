@@ -805,6 +805,9 @@ private:
 
         // Draw our render pipeline
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+        // Calculate our viewport to add letter/pillarboxing, so that the aspect ratio of the rendered region matches our camera's
+        float cameraAspect = scene.cameras[scene.selectedCamera].aspectRatio;
         VkViewport viewport {
             .x = 0.0f,
             .y = 0.0f,
@@ -813,7 +816,16 @@ private:
             .minDepth = 0.0f,
             .maxDepth = 1.0f,
         };
+        if (viewport.width / viewport.height > cameraAspect) {
+            viewport.width = cameraAspect * viewport.height;
+            viewport.x = (renderInstance->renderImageExtent.width - viewport.width) * 0.5f;
+        }
+        else if (viewport.width / viewport.height < cameraAspect) {
+            viewport.height = viewport.width / cameraAspect;
+            viewport.y = (renderInstance->renderImageExtent.height - viewport.height) * 0.5f;
+        }
         vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
         VkRect2D scissor {
             .offset = {0, 0},
             .extent = renderInstance->renderImageExtent,
