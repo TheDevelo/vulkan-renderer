@@ -66,22 +66,6 @@ struct Vertex {
     }
 };
 
-const std::vector<Vertex> vertices = {
-    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {255, 255, 255, 255}},
-    {{1.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {255, 0, 0, 255}},
-    {{1.5f, 1.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0, 255, 0, 255}},
-    {{0.5f, 1.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0, 0, 255, 255}},
-    {{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {255, 255, 255, 128}},
-    {{0.5f, -0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {255, 0, 0, 128}},
-    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0, 255, 0, 128}},
-    {{-0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0, 0, 255, 128}},
-};
-
-const std::vector<uint16_t> indices = {
-    0, 1, 2, 0, 2, 3,
-    4, 5, 6, 4, 6, 7
-};
-
 class VKRendererApp {
 public:
     void run() {
@@ -131,17 +115,11 @@ private:
     VkImageView textureImageView;
     VkSampler textureSampler;
 
-    VkBuffer vertexBuffer;
-    VkDeviceMemory vertexBufferMemory;
-    VkBuffer indexBuffer;
-    VkDeviceMemory indexBufferMemory;
-
     VkImage depthImage;
     VkDeviceMemory depthImageMemory;
     VkImageView depthImageView;
 
-    std::vector<VkBuffer> uniformBuffers;
-    std::vector<VkDeviceMemory> uniformBuffersMemory;
+    std::vector<CombinedBuffer> uniformBuffers;
     std::vector<void*> uniformBuffersMaps;
 
     VkDescriptorPool descriptorPool;
@@ -168,7 +146,6 @@ private:
         createTextureImage();
         createTextureSampler();
 
-        createVertexBuffer();
         createUniformBuffers();
         createDescriptorSets();
 
@@ -482,14 +459,12 @@ private:
 
         // Create a staging buffer for our image
         VkDeviceSize imageSize = textureWidth * textureHeight * 4;
-        VkBuffer stagingBuffer;
-        VkDeviceMemory stagingBufferMemory;
-        createBuffer(*renderInstance, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+        CombinedBuffer stagingBuffer(renderInstance, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
         void* data;
-        vkMapMemory(renderInstance->device, stagingBufferMemory, 0, imageSize, 0, &data);
+        vkMapMemory(renderInstance->device, stagingBuffer.bufferMemory, 0, imageSize, 0, &data);
         memcpy(data, pixels, static_cast<size_t>(imageSize));
-        vkUnmapMemory(renderInstance->device, stagingBufferMemory);
+        vkUnmapMemory(renderInstance->device, stagingBuffer.bufferMemory);
 
         // Free our CPU-side loaded texture
         stbi_image_free(pixels);
@@ -501,12 +476,8 @@ private:
 
         // Copy staging buffer to our image and prepare it for shader reads
         transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        copyBufferToImage(stagingBuffer, textureImage, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight));
+        copyBufferToImage(stagingBuffer.buffer, textureImage, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight));
         transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-        // Free our staging buffer
-        vkDestroyBuffer(renderInstance->device, stagingBuffer, nullptr);
-        vkFreeMemory(renderInstance->device, stagingBufferMemory, nullptr);
 
         // Create the texture image view
         textureImageView = createImageView(renderInstance->device, textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -633,58 +604,15 @@ private:
         endSingleUseCBuffer(*renderInstance, commandBuffer);
     }
 
-    // Create the vertex buffer AND index buffer for our triangle
-    void createVertexBuffer() {
-        VkDeviceSize vertexSize = sizeof(vertices[0]) * vertices.size();
-        createBuffer(*renderInstance, vertexSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
-        VkDeviceSize indexSize = sizeof(indices[0]) * indices.size();
-        createBuffer(*renderInstance, indexSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
-
-        // Staging buffer will contain both our data for the vertex and index buffer. We'll then copy both simultaneously.
-        VkBuffer stagingBuffer;
-        VkDeviceMemory stagingBufferMemory;
-        createBuffer(*renderInstance, vertexSize + indexSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-        void* data;
-        vkMapMemory(renderInstance->device, stagingBufferMemory, 0, vertexSize + indexSize, 0, &data);
-        memcpy(data, vertices.data(), (size_t) vertexSize);
-        // Need to static cast to uint8_t* since we can't do pointer arithmetic on void*. uint8_t* works because vertexSize is in bytes.
-        memcpy(static_cast<uint8_t*>(data) + vertexSize, indices.data(), (size_t) vertexSize);
-        vkUnmapMemory(renderInstance->device, stagingBufferMemory);
-
-        BufferCopy bufferCopyInfos[] = {
-            {
-                .srcBuffer = stagingBuffer,
-                .srcOffset = 0,
-                .dstBuffer = vertexBuffer,
-                .dstOffset = 0,
-                .size = vertexSize,
-            },
-            {
-                .srcBuffer = stagingBuffer,
-                .srcOffset = vertexSize,
-                .dstBuffer = indexBuffer,
-                .dstOffset = 0,
-                .size = indexSize,
-            },
-        };
-        copyBuffers(*renderInstance, bufferCopyInfos, 2);
-
-        vkDestroyBuffer(renderInstance->device, stagingBuffer, nullptr);
-        vkFreeMemory(renderInstance->device, stagingBufferMemory, nullptr);
-    }
-
     void createUniformBuffers() {
         VkDeviceSize bufferSize = sizeof(ViewProjMatrices);
 
-        uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-        uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+        uniformBuffers.reserve(MAX_FRAMES_IN_FLIGHT);
         uniformBuffersMaps.resize(MAX_FRAMES_IN_FLIGHT);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            createBuffer(*renderInstance, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
-
-            vkMapMemory(renderInstance->device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMaps[i]);
+            uniformBuffers.emplace_back(renderInstance, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            vkMapMemory(renderInstance->device, uniformBuffers[i].bufferMemory, 0, bufferSize, 0, &uniformBuffersMaps[i]);
         }
     }
 
@@ -725,7 +653,7 @@ private:
         // Point our descriptor sets at the underlying uniform buffers
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             VkDescriptorBufferInfo bufferInfo {
-                .buffer = uniformBuffers[i],
+                .buffer = uniformBuffers[i].buffer,
                 .offset = 0,
                 .range = sizeof(ViewProjMatrices),
             };
@@ -891,22 +819,7 @@ private:
             .extent = renderInstance->renderImageExtent,
         };
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-        VkBuffer vertexBuffers[] = {vertexBuffer};
-        VkDeviceSize offsets[] = {0};
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
-
-        // TODO: Remove this temporary rendering code once we get the scene viewer up and running
-        static auto startTime = std::chrono::high_resolution_clock::now();
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        float totalTime = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-
-        Mat4<float> model = linear::rotate(totalTime, Vec3<float>(0.0f, 0.0f, 1.0f));
-        vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4<float>), &model);
-
-        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
         // Draw the scene
         SceneRenderInfo sceneRenderInfo {
@@ -940,15 +853,6 @@ public:
         vkDestroyImageView(renderInstance->device, textureImageView, nullptr);
         vkDestroyImage(renderInstance->device, textureImage, nullptr);
         vkFreeMemory(renderInstance->device, textureImageMemory, nullptr);
-
-        vkDestroyBuffer(renderInstance->device, vertexBuffer, nullptr);
-        vkFreeMemory(renderInstance->device, vertexBufferMemory, nullptr);
-        vkDestroyBuffer(renderInstance->device, indexBuffer, nullptr);
-        vkFreeMemory(renderInstance->device, indexBufferMemory, nullptr);
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            vkDestroyBuffer(renderInstance->device, uniformBuffers[i], nullptr);
-            vkFreeMemory(renderInstance->device, uniformBuffersMemory[i], nullptr);
-        }
 
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(renderInstance->device, imageAvailableSemaphores[i], nullptr);

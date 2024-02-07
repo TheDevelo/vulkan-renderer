@@ -222,7 +222,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 uint32_t Scene::vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderInstance, const void* inBuffer, uint32_t size) {
     // The final vertex buffer we want to use
     CombinedBuffer& vertexBuffer = buffers.emplace_back(renderInstance, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    // Staging buffer will contain both our data for the vertex and index buffer. We'll then copy both simultaneously.
+    // Staging buffer will location on CPU so that we can directly copy to it. We then use it to transfer fully over to the GPU
     CombinedBuffer stagingBuffer = CombinedBuffer(renderInstance, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
     void* data;

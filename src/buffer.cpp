@@ -4,16 +4,6 @@
 #include "util.hpp"
 
 CombinedBuffer::CombinedBuffer(std::shared_ptr<RenderInstance>& renderInstanceIn, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memProps) : renderInstance(renderInstanceIn) {
-    // TODO: Copy createBuffer into this, and then wrap all uses of buffers in CombinedBuffers
-    createBuffer(*renderInstance, size, usage, memProps, buffer, bufferMemory);
-}
-
-CombinedBuffer::~CombinedBuffer() {
-    vkDestroyBuffer(renderInstance->device, buffer, nullptr);
-    vkFreeMemory(renderInstance->device, bufferMemory, nullptr);
-}
-
-void createBuffer(RenderInstance const& renderInstance, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memProps, VkBuffer& buffer, VkDeviceMemory& memory) {
     VkBufferCreateInfo bufferInfo {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = size,
@@ -21,20 +11,25 @@ void createBuffer(RenderInstance const& renderInstance, VkDeviceSize size, VkBuf
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     };
 
-    VK_ERR(vkCreateBuffer(renderInstance.device, &bufferInfo, nullptr, &buffer), "failed to create buffer!");
+    VK_ERR(vkCreateBuffer(renderInstance->device, &bufferInfo, nullptr, &buffer), "failed to create buffer!");
 
     VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(renderInstance.device, buffer, &memRequirements);
+    vkGetBufferMemoryRequirements(renderInstance->device, buffer, &memRequirements);
 
     VkMemoryAllocateInfo allocInfo {
         .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .allocationSize = memRequirements.size,
-        .memoryTypeIndex = findMemoryType(renderInstance, memRequirements.memoryTypeBits, memProps),
+        .memoryTypeIndex = findMemoryType(*renderInstance, memRequirements.memoryTypeBits, memProps),
     };
 
-    VK_ERR(vkAllocateMemory(renderInstance.device, &allocInfo, nullptr, &memory), "failed to allocate buffer memory!");
+    VK_ERR(vkAllocateMemory(renderInstance->device, &allocInfo, nullptr, &bufferMemory), "failed to allocate buffer memory!");
 
-    vkBindBufferMemory(renderInstance.device, buffer, memory, 0);
+    vkBindBufferMemory(renderInstance->device, buffer, bufferMemory, 0);
+}
+
+CombinedBuffer::~CombinedBuffer() {
+    vkDestroyBuffer(renderInstance->device, buffer, nullptr);
+    vkFreeMemory(renderInstance->device, bufferMemory, nullptr);
 }
 
 void copyBuffers(RenderInstance const& renderInstance, BufferCopy* bufferCopyInfos, uint32_t bufferCopyCount) {
