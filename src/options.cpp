@@ -1,3 +1,4 @@
+#include <charconv>
 #include <vector>
 
 #include "options.hpp"
@@ -9,6 +10,8 @@ static std::optional<std::string> cameraName;
 static std::optional<std::string> deviceName;
 static bool listDevicesBool = false;
 static bool enableValidation = false;
+static uint32_t windowWidth = 1280;
+static uint32_t windowHeight = 960;
 
 namespace options {
     void parse(int argc, char** argv) {
@@ -51,6 +54,21 @@ namespace options {
             else if (currentArg == "--enable-validation") {
                 enableValidation = true;
             }
+            else if (currentArg == "--window-size") {
+                currentIndex += 2;
+                if (currentIndex >= argc) {
+                    PANIC("missing argument to --window-size");
+                }
+
+                std::string_view xStr = args[currentIndex - 1];
+                std::string_view yStr = args[currentIndex];
+                auto xResult = std::from_chars(xStr.data(), xStr.data() + xStr.size(), windowWidth);
+                auto yResult = std::from_chars(yStr.data(), yStr.data() + yStr.size(), windowHeight);
+                if (xResult.ec == std::errc::invalid_argument || xResult.ec == std::errc::result_out_of_range ||
+                    yResult.ec == std::errc::invalid_argument || yResult.ec == std::errc::result_out_of_range) {
+                    PANIC("invalid argument to --window-size");
+                }
+            }
             else {
                 PANIC("invalid command line argument: " + std::string(currentArg));
             }
@@ -86,4 +104,12 @@ namespace options {
     bool isValidationEnabled() {
         return enableValidation;
     };
+
+    uint32_t getWindowWidth() {
+        return windowWidth;
+    }
+
+    uint32_t getWindowHeight() {
+        return windowHeight;
+    }
 }

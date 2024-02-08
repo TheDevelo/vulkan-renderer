@@ -1,11 +1,8 @@
 #include "instance.hpp"
 #include "linear.hpp"
+#include "options.hpp"
 
 #include <iostream>
-
-// Default window sizes
-const uint32_t WINDOW_W = 800;
-const uint32_t WINDOW_H = 600;
 
 static void targetResizeCallback(GLFWwindow* window, int width, int height) {
     RenderInstance* instance = reinterpret_cast<RenderInstance*>(glfwGetWindowUserPointer(window));
@@ -90,7 +87,7 @@ void RenderInstance::initRealWindow() {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-    window = glfwCreateWindow(WINDOW_W, WINDOW_H, "VKRenderer", nullptr, nullptr);
+    window = glfwCreateWindow(options::getWindowWidth(), options::getWindowHeight(), "VKRenderer", nullptr, nullptr);
     glfwSetWindowUserPointer(window, this);
     glfwSetFramebufferSizeCallback(window, targetResizeCallback);
     glfwSetKeyCallback(window, glfwKeyCallback);

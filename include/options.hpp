@@ -11,4 +11,6 @@ namespace options {
     std::optional<std::string> getDevice();
     bool listDevices();
     bool isValidationEnabled();
+    uint32_t getWindowWidth();
+    uint32_t getWindowHeight();
 }
