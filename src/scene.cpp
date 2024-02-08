@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <set>
 #include <stdexcept>
 
 #include "buffer.hpp"
@@ -168,4 +169,97 @@ void Scene::moveUserCamera(UserCameraMoveEvent moveAmount, float dt) {
 void Scene::rotateUserCamera(UserCameraRotateEvent rotateAmount) {
     userCamera.phi = std::fmod(userCamera.phi + rotateAmount.xyRadians, 2.0f * M_PI);
     userCamera.theta = std::clamp(userCamera.theta + rotateAmount.zRadians, -static_cast<float>(M_PI) / 2.0f, static_cast<float>(M_PI) / 2.0f);
+}
+
+void Scene::updateAnimation(float time) {
+    std::set<uint32_t> updatedNodes;
+    for (Driver driver : drivers) {
+        // Get the keyframe values required
+        uint32_t keyIndex;
+        bool doBinarySearch = false;
+        if (driver.lastKeyIndex == 0) {
+            // Special case: we are on first index, so just need to check if we are below the keyframe time
+            if (time < driver.keyTimes[0]) {
+                keyIndex = driver.lastKeyIndex;
+            }
+            // TODO: Check the next direct pair 0 and 1
+            else {
+                doBinarySearch = true;
+            }
+        }
+        else if (driver.lastKeyIndex == driver.keyTimes.size()) {
+            // Special case: we are on last index, so just need to check if we are above the keyframe time
+            if (time >= driver.keyTimes[driver.lastKeyIndex - 1]) {
+                keyIndex = driver.lastKeyIndex;
+            }
+            else {
+                doBinarySearch = true;
+            }
+        }
+        else {
+            // Check if time is directly between lastKeyIndex - 1 and lastKeyIndex
+            if (time >= driver.keyTimes[driver.lastKeyIndex - 1] && driver.keyTimes[driver.lastKeyIndex]) {
+                keyIndex = driver.lastKeyIndex;
+            }
+            // TODO: Check the next direct pair lastKeyIndex + 1 and lastKeyIndex + 2
+            else {
+                doBinarySearch = true;
+            }
+        }
+
+        if (doBinarySearch) {
+            auto it = std::upper_bound(driver.keyTimes.begin(), driver.keyTimes.end(), time);
+            keyIndex = std::distance(driver.keyTimes.begin(), it);
+        }
+        driver.lastKeyIndex = keyIndex;
+
+        // Interpolate the value
+        Vec4<float> interpolatedValue;
+        if (keyIndex == 0) {
+            // Special case - time is before the start, so just set interpolated value to be the first value
+            interpolatedValue = driver.keyValues[0];
+        }
+        else if (keyIndex == driver.keyTimes.size()) {
+            // Special case - time is past the end, so just set interpolated value to be the final value
+            interpolatedValue = driver.keyValues[keyIndex - 1];
+        }
+        else {
+            // We are in the middle of two keyframes, so interpolate between.
+            if (driver.interpolation == DRIVER_STEP) {
+                // Step, so just set the value to keyValues[keyIndex - 1]
+                interpolatedValue = driver.keyValues[keyIndex - 1];
+            }
+            else if (driver.interpolation == DRIVER_LINEAR) {
+                Vec4<float> first = driver.keyValues[keyIndex - 1];
+                Vec4<float> last = driver.keyValues[keyIndex];
+                float t = (time - driver.keyTimes[keyIndex - 1]) / (driver.keyTimes[keyIndex] - driver.keyTimes[keyIndex - 1]);
+                interpolatedValue = first * (1 - t) + last * t;
+            }
+            else if (driver.interpolation == DRIVER_SLERP) {
+                // TODO: IMPLEMENT SLERP INTERPOLATION
+            }
+        }
+
+        // Set the appropriate channel
+        if (driver.targetNode >= nodes.size()) {
+            PANIC(string_format("driver %s references node %u out of range!", driver.name, driver.targetNode));
+        }
+        Node& node = nodes[driver.targetNode];
+        if (driver.channel == DRIVER_TRANSLATION) {
+            node.translation = interpolatedValue.xyz;
+        }
+        else if (driver.channel == DRIVER_ROTATION) {
+            node.rotation = interpolatedValue;
+        }
+        else if (driver.channel == DRIVER_SCALE) {
+            node.scale = interpolatedValue.xyz;
+        }
+
+        updatedNodes.insert(driver.targetNode);
+    }
+
+    // Update the transforms of our updated nodes
+    for (uint32_t nodeId : updatedNodes) {
+        nodes[nodeId].calculateTransforms();
+    }
 }

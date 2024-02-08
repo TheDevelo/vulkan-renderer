@@ -29,9 +29,16 @@ struct Node {
     Mat4<float> invTransform;
     std::vector<uint32_t> childIndices;
 
+    // Stored scale/rotation/translation for animation purposes (will be used to recalculate transform/invTransform)
+    Vec3<float> translation;
+    Vec4<float> rotation;
+    Vec3<float> scale;
+
     // Attached mesh/cameras
     std::optional<uint32_t> meshIndex;
     std::optional<uint32_t> cameraIndex;
+
+    void calculateTransforms();
 };
 
 struct Mesh {
@@ -52,6 +59,31 @@ struct Camera {
     std::optional<float> farZ;
 };
 
+enum DriverChannel {
+    DRIVER_TRANSLATION,
+    DRIVER_SCALE,
+    DRIVER_ROTATION,
+};
+
+enum DriverInterpolation {
+    DRIVER_STEP,
+    DRIVER_LINEAR,
+    DRIVER_SLERP,
+};
+
+struct Driver {
+    std::string name;
+
+    uint32_t targetNode;
+    DriverChannel channel;
+    std::vector<float> keyTimes;
+    std::vector<Vec4<float>> keyValues;
+    DriverInterpolation interpolation;
+
+    // Index of last used keyframe (first one greater than time), so that we can have O(1) keyframe lookup in the vast majority of cases (since time is almost always monotonically increasing)
+    uint32_t lastKeyIndex;
+};
+
 struct UserCamera {
     float theta; // Measures Z angle, ranges from -PI/2 to PI/2
     float phi; // Measures XY angle
@@ -67,6 +99,7 @@ public:
     void updateCameraTransform(RenderInstance const& renderInstance); // Need render instance for the user camera aspect ratio calculation
     void moveUserCamera(UserCameraMoveEvent moveAmount, float dt);
     void rotateUserCamera(UserCameraRotateEvent rotateAmount);
+    void updateAnimation(float time);
 
     // Cameras are public so that the "outside" can change the selected camera
     uint32_t selectedCamera = 0;
@@ -86,6 +119,7 @@ private:
     std::vector<uint32_t> sceneRoots;
     std::vector<Node> nodes;
     std::vector<Mesh> meshes;
+    std::vector<Driver> drivers;
     std::vector<CombinedBuffer> buffers;
 
     // We store a copy of our viewProj matrices for culling as well, which lets us separate the view and culling camera for debug mode

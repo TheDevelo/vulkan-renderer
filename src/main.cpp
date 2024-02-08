@@ -689,9 +689,13 @@ private:
     }
 
     void mainLoop() {
-        float frameTime = 0.01; // Initialize to a frame time at 100 FPS as a first guess
+        float frameTime = 0.0f; // I think starting at 0 is fine since I dont use the frameTime to divide anything
+        float animationRate = 1.0f;
+        float animationTime = 0.0f;
         while (!renderInstance->shouldClose()) {
             auto startTime = std::chrono::high_resolution_clock::now();
+
+            // Process events
             renderInstance->processWindowEvents();
             for (RenderInstanceEvent event : renderInstance->eventQueue) {
                 if (event.type == RI_EV_SWAP_FIXED_CAMERA) {
@@ -701,6 +705,7 @@ private:
                     }
                     else {
                         scene.selectedCamera = (scene.selectedCamera + 1) % scene.cameras.size();
+                        animationTime = 0.0f;
                     }
                 }
                 else if (event.type == RI_EV_USE_USER_CAMERA) {
@@ -719,11 +724,18 @@ private:
                 }
             }
 
+            // Update scene transforms based on animations
+            if (animationRate != 0.0f) {
+                scene.updateAnimation(animationTime);
+            }
+
+            // Draw the frame
             drawFrame();
 
             // Update frameTime for use in next frame
             auto endTime = std::chrono::high_resolution_clock::now();
             frameTime = std::chrono::duration<float, std::chrono::seconds::period>(endTime - startTime).count();
+            animationTime += frameTime * animationRate;
         }
 
         // Wait until our device has finished all operations before quitting

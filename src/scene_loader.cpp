@@ -115,9 +115,12 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
         Node node {
             .name = nodeObj.at("name").as_str(),
-            .transform = linear::localToParent(t, q, s),
-            .invTransform = linear::parentToLocal(t, q, s),
+            .translation = t,
+            .rotation = q,
+            .scale = s,
         };
+        node.calculateTransforms();
+
         // Add mesh and camera indices
         if (nodeObj.contains("mesh")) {
             uint32_t jsonId = nodeObj.at("mesh").as_num();
@@ -217,7 +220,97 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         cameras.push_back(camera);
     }
 
-    // TODO: construct driver objects
+    // Iterate through all the drivers and construct their Driver representation
+    for (auto idPair : driverIdMap) {
+        uint32_t s72Id = idPair.first;
+        json::object const& driverObj = sceneArr[s72Id].as_obj();
+
+        // Get the driver's target
+        if (!driverObj.contains("node") || !driverObj.at("node").is_num()) {
+            PANIC("Scene loading error: driver object doesn't have a target node");
+        }
+        uint32_t targetJsonId = driverObj.at("node").as_num();
+
+        // Get the target channel
+        if (!driverObj.contains("channel") || !driverObj.at("channel").is_str()) {
+            PANIC("Scene loading error: driver object doesn't have a target channel");
+        }
+        std::string const& channelStr = driverObj.at("channel").as_str();
+        DriverChannel channel;
+        uint32_t channelWidth;
+        if (channelStr == "translation") {
+            channel = DRIVER_TRANSLATION;
+            channelWidth = 3;
+        }
+        else if (channelStr == "rotation") {
+            channel = DRIVER_ROTATION;
+            channelWidth = 4;
+        }
+        else if (channelStr == "scale") {
+            channel = DRIVER_SCALE;
+            channelWidth = 3;
+        }
+        else {
+            PANIC("Scene loading error: driver object has an invalid channel");
+        }
+
+        Driver driver {
+            .targetNode = nodeIdMap.at(targetJsonId),
+            .channel = channel,
+            .interpolation = DRIVER_LINEAR,
+            .lastKeyIndex = 0,
+        };
+
+        // Get the keyframe times
+        if (!driverObj.contains("times") || !driverObj.at("times").is_arr()) {
+            PANIC("Scene loading error: driver object doesn't have keyframe times");
+        }
+        for (json::Value const& time : driverObj.at("times").as_arr()) {
+            if (!time.is_num()) {
+                PANIC("Scene loading error: driver keyframe times contains invalid entry");
+            }
+            driver.keyTimes.emplace_back(time.as_num());
+        }
+
+        // Get the keyframe values
+        if (!driverObj.contains("values") || !driverObj.at("values").is_arr()) {
+            PANIC("Scene loading error: driver object doesn't have keyframe values");
+        }
+        else if (driverObj.at("values").as_arr().size() != channelWidth * driver.keyTimes.size()) {
+            PANIC("Scene loading error: driver has wrong number of keyframe values");
+        }
+        json::array const& driverValues = driverObj.at("values").as_arr();
+        for (uint32_t i = 0; i < driverValues.size(); i += channelWidth) {
+            Vec4<float> value = Vec4<float>(0.0f);
+            for (uint32_t j = 0; j < channelWidth; j++) {
+                if (!driverValues[i + j].is_num()) {
+                    PANIC("Scene loading error: driver has an invalid keyframe value");
+                }
+                value[j] = driverValues[i + j].as_num();
+            }
+
+            driver.keyValues.emplace_back(value);
+        }
+
+        // Get the keyframe interpolation
+        if (driverObj.contains("interpolation") && driverObj.at("interpolation").is_str()) {
+            std::string const& interpStr = driverObj.at("interpolation").as_str();
+            if (interpStr == "STEP") {
+                driver.interpolation = DRIVER_STEP;
+            }
+            else if (interpStr == "LINEAR") {
+                driver.interpolation = DRIVER_LINEAR;
+            }
+            else if (interpStr == "SLERP") {
+                driver.interpolation = DRIVER_SLERP;
+            }
+            else {
+                PANIC("Scene loading error: driver has an invalid interpolation value");
+            }
+        }
+
+        drivers.push_back(driver);
+    }
 
     // Set the default camera
     if (options::getDefaultCamera().has_value()) {
@@ -269,4 +362,9 @@ uint32_t Scene::vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderIn
     copyBuffers(*renderInstance, bufferCopyInfos, 1);
 
     return buffers.size() - 1;
+}
+
+void Node::calculateTransforms() {
+    transform = linear::localToParent(translation, rotation, scale);
+    invTransform = linear::parentToLocal(translation, rotation, scale);
 }
