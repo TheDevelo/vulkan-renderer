@@ -4,7 +4,9 @@
 #include <map>
 #include <cstring>
 
+#include "instance.hpp"
 #include "json.hpp"
+#include "options.hpp"
 #include "scene.hpp"
 #include "util.hpp"
 
@@ -216,6 +218,31 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     }
 
     // TODO: construct driver objects
+
+    // Set the default camera
+    if (options::getDefaultCamera().has_value()) {
+        // Start with the selected camera as the one with the specified name
+        std::string cameraName = options::getDefaultCamera().value();
+        bool foundCamera = false;
+        for (uint32_t i = 0; i < cameras.size(); i++) {
+            if (cameras[i].name == cameraName) {
+                selectedCamera = i;
+                foundCamera = true;
+                break;
+            }
+        }
+
+        if (!foundCamera) {
+            PANIC("failed to find camera specified by --camera");
+        }
+        useUserCamera = false;
+    }
+    else {
+        // Default case: just use the user camera
+        selectedCamera = 0;
+        useUserCamera = true;
+    }
+    useDebugCamera = false;
 }
 
 // Helper to construct a vertex buffer from a CPU buffer

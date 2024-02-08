@@ -13,10 +13,6 @@
 #include "options.hpp"
 #include "util.hpp"
 
-// Default window sizes
-const uint32_t WINDOW_W = 800;
-const uint32_t WINDOW_H = 600;
-
 // Desired validation layers/device extensions
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation",
@@ -75,7 +71,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 bool checkValidationLayerSupport();
 std::vector<const char*> getRequiredExtensions();
 bool checkDeviceExtensionSupport(VkPhysicalDevice device);
-static void targetResizeCallback(GLFWwindow* window, int width, int height);
 
 // Render instance constructor
 RenderInstance::RenderInstance(RenderInstanceOptions const& opts) {
@@ -89,15 +84,6 @@ RenderInstance::RenderInstance(RenderInstanceOptions const& opts) {
 
     createCommandPool();
 };
-
-void RenderInstance::initRealWindow() {
-    glfwInit();
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-    window = glfwCreateWindow(WINDOW_W, WINDOW_H, "VKRenderer", nullptr, nullptr);
-    glfwSetWindowUserPointer(window, this);
-    glfwSetFramebufferSizeCallback(window, targetResizeCallback);
-}
 
 // Cleanup destructor for our render instance
 RenderInstance::~RenderInstance() {
@@ -503,19 +489,6 @@ VkExtent2D RenderInstance::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capa
 
 inline QueueFamilyIndices RenderInstance::getQueueFamilies() {
     return findQueueFamilies(physicalDevice);
-}
-
-bool RenderInstance::shouldClose() {
-    return glfwWindowShouldClose(window);
-}
-
-void RenderInstance::processWindowEvents() {
-    glfwPollEvents();
-}
-
-static void targetResizeCallback(GLFWwindow* window, int width, int height) {
-    RenderInstance* instance = reinterpret_cast<RenderInstance*>(glfwGetWindowUserPointer(window));
-    instance->targetResized = true;
 }
 
 // TODO: Do acquireImage/presentImage for headless mode...

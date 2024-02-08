@@ -372,7 +372,6 @@ namespace linear {
     }
 
     // View matrix helper that points a camera at eye to center, with up being the direction of "up"
-    // NOTE: Currently broken, I think? If I need it in the future, then try flipping the sign of u and f
     template<typename T>
     Mat4<T> lookAt(Vec3<T> eye, Vec3<T> center, Vec3<T> up) {
         // We calculate the forward, side, and up directions that the XYZ axes get translated to
@@ -382,10 +381,10 @@ namespace linear {
 
         // NOTE: initializer_list just copies to the array, so this is actually the transpose of the real matrix
         Mat4<T> result {
-            s.x, u.x, f.x, static_cast<T>(0),
-            s.y, u.y, f.y, static_cast<T>(0),
-            s.z, u.z, f.z, static_cast<T>(0),
-            -dot(s, eye), -dot(u, eye), -dot(f, eye), static_cast<T>(1)
+            s.x, -u.x, -f.x, static_cast<T>(0),
+            s.y, -u.y, -f.y, static_cast<T>(0),
+            s.z, -u.z, -f.z, static_cast<T>(0),
+            -dot(s, eye), dot(u, eye), dot(f, eye), static_cast<T>(1)
         };
         return result;
     }

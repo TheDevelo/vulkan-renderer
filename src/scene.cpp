@@ -1,5 +1,6 @@
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 
@@ -65,38 +66,59 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
     vkCmdDraw(sceneRenderInfo.commandBuffer, mesh.vertexCount, 1, 0, 0);
 }
 
-void Scene::updateCameraTransform() {
-    // Calculate the projection matrix
-    if (selectedCamera >= cameras.size()) {
-        PANIC(string_format("selected camera %u is out of range!", selectedCamera));
-    }
-    Camera& camera = cameras[selectedCamera];
+void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
+    if (useUserCamera) {
+        // User camera
+        // Calculate the projection matrix
+        viewProj.proj = linear::infinitePerspective(DEG2RADF(60.0f), renderInstance.renderImageExtent.width / (float) renderInstance.renderImageExtent.height, 0.1f);
 
-    if (camera.farZ.has_value()) {
-        viewProj.proj = linear::perspective(camera.vFov, camera.aspectRatio, camera.nearZ, camera.farZ.value());
+        // Calculate the view matrix
+        float sinPhi = std::sin(userCamera.phi);
+        float cosPhi = std::cos(userCamera.phi);
+        float sinTheta = std::sin(userCamera.theta);
+        float cosTheta = std::cos(userCamera.theta);
+        Vec3<float> viewDirection(cosPhi * cosTheta, sinPhi * cosTheta, sinTheta);
+        viewProj.view = linear::lookAt(userCamera.position, viewDirection + userCamera.position, Vec3<float>(0.0f, 0.0f, 1.0f));
     }
     else {
-        viewProj.proj = linear::infinitePerspective(camera.vFov, camera.aspectRatio, camera.nearZ);
-    }
+        // Scene camera
+        // Calculate the projection matrix
+        if (selectedCamera >= cameras.size()) {
+            PANIC(string_format("selected camera %u is out of range!", selectedCamera));
+        }
+        Camera& camera = cameras[selectedCamera];
 
-    // Find the worldToLocal transform for the selected camera to serve as the view matrix
-    bool foundCamera = false;
-    for (uint32_t rootNode : sceneRoots) {
-        if (rootNode >= nodes.size()) {
-            PANIC(string_format("node %u out of range is listed as scene root!", rootNode));
+        if (camera.farZ.has_value()) {
+            viewProj.proj = linear::perspective(camera.vFov, camera.aspectRatio, camera.nearZ, camera.farZ.value());
+        }
+        else {
+            viewProj.proj = linear::infinitePerspective(camera.vFov, camera.aspectRatio, camera.nearZ);
         }
 
-        std::optional<Mat4<float>> worldToLocal = findCameraWTLTransform(rootNode, selectedCamera);
-        if (worldToLocal.has_value()) {
-            // After getting worldToLocal, we need to flip the Y and Z coordinates to get our camera propertly oriented
-            viewProj.view = worldToLocal.value();
-            foundCamera = true;
-            break;
+        // Find the worldToLocal transform for the selected camera to serve as the view matrix
+        bool foundCamera = false;
+        for (uint32_t rootNode : sceneRoots) {
+            if (rootNode >= nodes.size()) {
+                PANIC(string_format("node %u out of range is listed as scene root!", rootNode));
+            }
+
+            std::optional<Mat4<float>> worldToLocal = findCameraWTLTransform(rootNode, selectedCamera);
+            if (worldToLocal.has_value()) {
+                // After getting worldToLocal, we need to flip the Y and Z coordinates to get our camera propertly oriented
+                viewProj.view = worldToLocal.value();
+                foundCamera = true;
+                break;
+            }
+        }
+
+        if (!foundCamera) {
+            PANIC(string_format("selected camera %u is not in scene!", selectedCamera));
         }
     }
 
-    if (!foundCamera) {
-        PANIC(string_format("selected camera %u is not in scene!", selectedCamera));
+    // Copy our updated viewProj to the cullingViewProj if we don't have debug camera on
+    if (!useDebugCamera) {
+        cullingViewProj = viewProj;
     }
 }
 
@@ -125,4 +147,25 @@ std::optional<Mat4<float>> Scene::findCameraWTLTransform(uint32_t nodeId, uint32
     }
 
     return std::nullopt;
+}
+
+void Scene::moveUserCamera(UserCameraMoveEvent moveAmount, float dt) {
+    constexpr float speed = 1.0f;
+    // Calculate the view direction to determine where to move the camera
+    float sin_phi = std::sin(userCamera.phi);
+    float cos_phi = std::cos(userCamera.phi);
+    float sin_theta = std::sin(userCamera.theta);
+    float cos_theta = std::cos(userCamera.theta);
+    Vec3<float> viewDirection(cos_phi * cos_theta, sin_phi * cos_theta, sin_theta);
+
+    // Calculate the side direction where thetaSide = 0 & phiSide + pi/2. Use trig to get the below formula
+    Vec3<float> sideDirection(-sin_phi, cos_phi, 0.0f);
+
+    Vec3<float> delta = static_cast<float>(moveAmount.forwardAmount) * viewDirection + static_cast<float>(moveAmount.sideAmount) * sideDirection;
+    userCamera.position = userCamera.position + speed * dt * delta;
+}
+
+void Scene::rotateUserCamera(UserCameraRotateEvent rotateAmount) {
+    userCamera.phi = std::fmod(userCamera.phi + rotateAmount.xyRadians, 2.0f * M_PI);
+    userCamera.theta = std::clamp(userCamera.theta + rotateAmount.zRadians, -static_cast<float>(M_PI) / 2.0f, static_cast<float>(M_PI) / 2.0f);
 }

@@ -75,26 +75,6 @@ public:
 
         // Load our scene
         scene = Scene(renderInstance, options::getScenePath());
-        if (options::getDefaultCamera().has_value()) {
-            // Start with the selected camera as the one with the specified name
-            std::string cameraName = options::getDefaultCamera().value();
-            bool foundCamera = false;
-            for (uint32_t i = 0; i < scene.cameras.size(); i++) {
-                if (scene.cameras[i].name == cameraName) {
-                    scene.selectedCamera = i;
-                    foundCamera = true;
-                    break;
-                }
-            }
-
-            if (!foundCamera) {
-                PANIC("failed to find camera specified by --camera");
-            }
-        }
-        else {
-            // Default case: just use the first camera
-            scene.selectedCamera = 0;
-        }
 
         mainLoop();
     }
@@ -709,10 +689,41 @@ private:
     }
 
     void mainLoop() {
+        float frameTime = 0.01; // Initialize to a frame time at 100 FPS as a first guess
         while (!renderInstance->shouldClose()) {
+            auto startTime = std::chrono::high_resolution_clock::now();
             renderInstance->processWindowEvents();
+            for (RenderInstanceEvent event : renderInstance->eventQueue) {
+                if (event.type == RI_EV_SWAP_FIXED_CAMERA) {
+                    if (scene.useUserCamera) {
+                        scene.useUserCamera = false;
+                        scene.useDebugCamera = false;
+                    }
+                    else {
+                        scene.selectedCamera = (scene.selectedCamera + 1) % scene.cameras.size();
+                    }
+                }
+                else if (event.type == RI_EV_USE_USER_CAMERA) {
+                    scene.useUserCamera = true;
+                    scene.useDebugCamera = false;
+                }
+                else if (event.type == RI_EV_USE_DEBUG_CAMERA) {
+                    scene.useUserCamera = true;
+                    scene.useDebugCamera = true;
+                }
+                else if (event.type == RI_EV_USER_CAMERA_MOVE && scene.useUserCamera) {
+                    scene.moveUserCamera(event.userCameraMoveData, frameTime);
+                }
+                else if (event.type == RI_EV_USER_CAMERA_ROTATE && scene.useUserCamera) {
+                    scene.rotateUserCamera(event.userCameraRotateData);
+                }
+            }
 
             drawFrame();
+
+            // Update frameTime for use in next frame
+            auto endTime = std::chrono::high_resolution_clock::now();
+            frameTime = std::chrono::duration<float, std::chrono::seconds::period>(endTime - startTime).count();
         }
 
         // Wait until our device has finished all operations before quitting
@@ -739,7 +750,7 @@ private:
         vkResetFences(renderInstance->device, 1, &inFlightFences[currentFrame]);
 
         // Update our viewProj matrices from our camera
-        scene.updateCameraTransform();
+        scene.updateCameraTransform(*renderInstance);
         memcpy(uniformBuffersMaps[currentFrame], &scene.viewProj, sizeof(scene.viewProj));
 
         // Record our render commands
@@ -807,7 +818,13 @@ private:
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
         // Calculate our viewport to add letter/pillarboxing, so that the aspect ratio of the rendered region matches our camera's
-        float cameraAspect = scene.cameras[scene.selectedCamera].aspectRatio;
+        float cameraAspect;
+        if (scene.useUserCamera) {
+            cameraAspect = renderInstance->renderImageExtent.width / (float) renderInstance->renderImageExtent.height;
+        }
+        else {
+            cameraAspect = scene.cameras[scene.selectedCamera].aspectRatio;
+        }
         VkViewport viewport {
             .x = 0.0f,
             .y = 0.0f,

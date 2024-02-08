@@ -33,6 +33,34 @@ enum RenderInstanceImageStatus {
     RI_TARGET_FAILURE,
 };
 
+// Event types and data structs
+struct UserCameraMoveEvent {
+    int forwardAmount; // +1 for forward, -1 for backward
+    int sideAmount; // +1 for left, -1 for right
+};
+
+struct UserCameraRotateEvent {
+    float xyRadians;
+    float zRadians;
+};
+
+enum RenderInstanceEventType {
+    RI_EV_SWAP_FIXED_CAMERA, // Also will switch to fixed camera from user/debug camera
+    RI_EV_USE_USER_CAMERA,
+    RI_EV_USE_DEBUG_CAMERA,
+    RI_EV_USER_CAMERA_MOVE,
+    RI_EV_USER_CAMERA_ROTATE,
+    RI_EV_INTERNAL_AVAILABLE,
+};
+
+struct RenderInstanceEvent {
+    RenderInstanceEventType type;
+    union {
+        UserCameraMoveEvent userCameraMoveData;
+        UserCameraRotateEvent userCameraRotateData;
+    };
+};
+
 // RenderInstance provides a Vulkan instance/device to render to, a way to acquire/present render targets, and a way to handle windowing events
 class RenderInstance {
 public:
@@ -62,8 +90,10 @@ public:
     // presentImage takes in a semaphore to wait on before we can present the image
     RenderInstanceImageStatus presentImage(VkSemaphore renderFinishedSemaphore, uint32_t imageIndex);
 
+    // Windowing events
     bool shouldClose();
     void processWindowEvents();
+    std::vector<RenderInstanceEvent> eventQueue;
 
     inline QueueFamilyIndices getQueueFamilies();
 

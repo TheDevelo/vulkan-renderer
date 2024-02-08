@@ -37,10 +37,12 @@ maek.options.CPPFlags.push(
 const VKRenderer_objs = [
 	maek.CPP('src/main.cpp'),
 	maek.CPP('src/util.cpp'),
-	maek.CPP('src/instance.cpp'),
 	maek.CPP('src/buffer.cpp'),
 	maek.CPP('src/json.cpp'),
 	maek.CPP('src/options.cpp'),
+
+	maek.CPP('src/instance.cpp'),
+	maek.CPP('src/instance_window.cpp'),
 
 	maek.CPP('src/scene.cpp'),
 	maek.CPP('src/scene_loader.cpp'),
