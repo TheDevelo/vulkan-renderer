@@ -736,6 +736,10 @@ private:
             auto endTime = std::chrono::high_resolution_clock::now();
             frameTime = std::chrono::duration<float, std::chrono::seconds::period>(endTime - startTime).count();
             animationTime += frameTime * animationRate;
+
+            if (options::logFrameTimes()) {
+                std::cout << "REPORT frame-time " << frameTime * 1000.0f << "ms" << std::endl;
+            }
         }
 
         // Wait until our device has finished all operations before quitting

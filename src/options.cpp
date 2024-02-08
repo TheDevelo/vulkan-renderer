@@ -12,6 +12,7 @@ static bool listDevicesBool = false;
 static bool enableValidation = false;
 static uint32_t windowWidth = 1280;
 static uint32_t windowHeight = 960;
+static bool logFrameTimesBool = false;
 
 namespace options {
     void parse(int argc, char** argv) {
@@ -69,6 +70,9 @@ namespace options {
                     PANIC("invalid argument to --window-size");
                 }
             }
+            else if (currentArg == "--log-frame-times") {
+                logFrameTimesBool = true;
+            }
             else {
                 PANIC("invalid command line argument: " + std::string(currentArg));
             }
@@ -111,5 +115,9 @@ namespace options {
 
     uint32_t getWindowHeight() {
         return windowHeight;
+    }
+
+    bool logFrameTimes() {
+        return logFrameTimesBool;
     }
 }

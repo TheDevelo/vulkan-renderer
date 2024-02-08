@@ -13,4 +13,5 @@ namespace options {
     bool isValidationEnabled();
     uint32_t getWindowWidth();
     uint32_t getWindowHeight();
+    bool logFrameTimes();
 }
