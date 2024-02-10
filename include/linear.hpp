@@ -314,8 +314,7 @@ namespace linear {
 
 // Useful matrix/vector calc helper functions
 namespace linear {
-    // Perspective matrix calculation taken from glm's perspectiveLH_ZO.
-    // LH is appropriate for Vulkan per detail/setup.hpp in glm, and want ZO as Vulkan's depth clip space goes from 0 to 1
+    // Perspective matrix calculation
     template<typename T>
     Mat4<T> perspective(T fovy, T aspect, T zNear, T zFar) {
         T const invTanHalfFovy = static_cast<T>(1) / std::tan(fovy / static_cast<T>(2));
@@ -410,9 +409,9 @@ namespace linear {
         Vec3<T> s = Vec3<T>(1 / sn.x, 1 / sn.y, 1 / sn.z);
 
         Mat4<T> result {
-            s.x * (1 - 2*(q.y*q.y + q.z*q.z)), s.x *      2*(q.x*q.y + q.z*q.w) , s.x *      2*(q.x*q.z - q.y*q.w) , static_cast<T>(0),
-            s.y *      2*(q.x*q.y - q.z*q.w) , s.y * (1 - 2*(q.x*q.x + q.z*q.z)), s.y *      2*(q.y*q.z + q.x*q.w) , static_cast<T>(0),
-            s.z *      2*(q.x*q.z + q.y*q.w) , s.z *      2*(q.y*q.z - q.x*q.w) , s.z * (1 - 2*(q.x*q.x + q.y*q.y)), static_cast<T>(0),
+            s.x * (1 - 2*(q.y*q.y + q.z*q.z)), s.y *      2*(q.x*q.y + q.z*q.w) , s.z *      2*(q.x*q.z - q.y*q.w) , static_cast<T>(0),
+            s.x *      2*(q.x*q.y - q.z*q.w) , s.y * (1 - 2*(q.x*q.x + q.z*q.z)), s.z *      2*(q.y*q.z + q.x*q.w) , static_cast<T>(0),
+            s.x *      2*(q.x*q.z + q.y*q.w) , s.y *      2*(q.y*q.z - q.x*q.w) , s.z * (1 - 2*(q.x*q.x + q.y*q.y)), static_cast<T>(0),
             static_cast<T>(0)                , static_cast<T>(0)                , static_cast<T>(0)                , static_cast<T>(1),
         };
         t = mmul(result, t);

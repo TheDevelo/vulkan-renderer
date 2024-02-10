@@ -691,7 +691,7 @@ private:
     void mainLoop() {
         float frameTime = 0.0f; // I think starting at 0 is fine since I dont use the frameTime to divide anything
         float animationRate = 1.0f;
-        float animationTime = 0.0f;
+        float animationTime = scene.minAnimTime;
         while (!renderInstance->shouldClose()) {
             auto startTime = std::chrono::high_resolution_clock::now();
 
@@ -705,7 +705,6 @@ private:
                     }
                     else {
                         scene.selectedCamera = (scene.selectedCamera + 1) % scene.cameras.size();
-                        animationTime = 0.0f;
                     }
                 }
                 else if (event.type == RI_EV_USE_USER_CAMERA) {
@@ -722,6 +721,18 @@ private:
                 else if (event.type == RI_EV_USER_CAMERA_ROTATE && scene.useUserCamera) {
                     scene.rotateUserCamera(event.userCameraRotateData);
                 }
+                else if (event.type == RI_EV_TOGGLE_ANIMATION) {
+                    if (animationRate == 0.0f) {
+                        animationRate = 1.0f;
+                    }
+                    else {
+                        animationRate = 0.0f;
+                    }
+                }
+                else if (event.type == RI_EV_SET_ANIMATION) {
+                    animationTime = event.setAnimationData.time;
+                    animationRate = event.setAnimationData.rate;
+                }
             }
 
             // Update scene transforms based on animations
@@ -735,7 +746,11 @@ private:
             // Update frameTime for use in next frame
             auto endTime = std::chrono::high_resolution_clock::now();
             frameTime = std::chrono::duration<float, std::chrono::seconds::period>(endTime - startTime).count();
+
             animationTime += frameTime * animationRate;
+            if (animationTime > scene.maxAnimTime) {
+                animationTime -= scene.maxAnimTime - scene.minAnimTime;
+            }
 
             if (options::logFrameTimes()) {
                 std::cout << "REPORT frame-time " << frameTime * 1000.0f << "ms" << std::endl;

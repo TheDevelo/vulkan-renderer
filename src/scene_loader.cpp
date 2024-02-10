@@ -221,6 +221,8 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     }
 
     // Iterate through all the drivers and construct their Driver representation
+    minAnimTime = std::numeric_limits<float>::max();
+    maxAnimTime = std::numeric_limits<float>::min();
     for (auto idPair : driverIdMap) {
         uint32_t s72Id = idPair.first;
         json::object const& driverObj = sceneArr[s72Id].as_obj();
@@ -271,6 +273,9 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             }
             driver.keyTimes.emplace_back(time.as_num());
         }
+        if (driver.keyTimes.size() < 2) {
+            PANIC("Scene loading error: driver does not have enough key frames (>= 2)");
+        }
 
         // Get the keyframe values
         if (!driverObj.contains("values") || !driverObj.at("values").is_arr()) {
@@ -309,6 +314,8 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             }
         }
 
+        minAnimTime = std::min(driver.keyTimes[0], minAnimTime);
+        maxAnimTime = std::max(driver.keyTimes[driver.keyTimes.size() - 1], maxAnimTime);
         drivers.push_back(driver);
     }
 

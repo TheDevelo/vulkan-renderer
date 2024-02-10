@@ -105,6 +105,9 @@ public:
     uint32_t selectedCamera = 0;
     std::vector<Camera> cameras;
 
+    float minAnimTime;
+    float maxAnimTime;
+
     bool useUserCamera;
     bool useDebugCamera;
 

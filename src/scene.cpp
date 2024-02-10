@@ -167,22 +167,26 @@ void Scene::moveUserCamera(UserCameraMoveEvent moveAmount, float dt) {
 }
 
 void Scene::rotateUserCamera(UserCameraRotateEvent rotateAmount) {
+    constexpr float EPSILON = 0.00001; // Epsilon so that we don't have our camera go perfectly vertical (causes issues)
     userCamera.phi = std::fmod(userCamera.phi + rotateAmount.xyRadians, 2.0f * M_PI);
-    userCamera.theta = std::clamp(userCamera.theta + rotateAmount.zRadians, -static_cast<float>(M_PI) / 2.0f, static_cast<float>(M_PI) / 2.0f);
+    userCamera.theta = std::clamp(userCamera.theta + rotateAmount.zRadians, -static_cast<float>(M_PI) / 2.0f + EPSILON, static_cast<float>(M_PI) / 2.0f - EPSILON);
 }
 
 void Scene::updateAnimation(float time) {
     std::set<uint32_t> updatedNodes;
-    for (Driver driver : drivers) {
+    for (Driver& driver : drivers) {
         // Get the keyframe values required
         uint32_t keyIndex;
         bool doBinarySearch = false;
         if (driver.lastKeyIndex == 0) {
             // Special case: we are on first index, so just need to check if we are below the keyframe time
             if (time < driver.keyTimes[0]) {
-                keyIndex = driver.lastKeyIndex;
+                keyIndex = 0;
             }
-            // TODO: Check the next direct pair 0 and 1
+            // If not, check the next pair in case time increased to the next keyframe
+            else if (time >= driver.keyTimes[0] && time < driver.keyTimes[1]) {
+                keyIndex = 1;
+            }
             else {
                 doBinarySearch = true;
             }
@@ -198,15 +202,31 @@ void Scene::updateAnimation(float time) {
         }
         else {
             // Check if time is directly between lastKeyIndex - 1 and lastKeyIndex
-            if (time >= driver.keyTimes[driver.lastKeyIndex - 1] && driver.keyTimes[driver.lastKeyIndex]) {
+            if (time >= driver.keyTimes[driver.lastKeyIndex - 1] && time < driver.keyTimes[driver.lastKeyIndex]) {
                 keyIndex = driver.lastKeyIndex;
             }
-            // TODO: Check the next direct pair lastKeyIndex + 1 and lastKeyIndex + 2
+            else if (driver.lastKeyIndex == driver.keyTimes.size() - 1) {
+                // If lastKeyIndex is the last key time, then just check if we are past the end
+                if (time >= driver.keyTimes[driver.lastKeyIndex]) {
+                    keyIndex = driver.lastKeyIndex + 1;
+                }
+                else {
+                    doBinarySearch = true;
+                }
+            }
             else {
-                doBinarySearch = true;
+                // If not, check the next pair in case time increased to the next keyframe
+                if (time >= driver.keyTimes[driver.lastKeyIndex] && time < driver.keyTimes[driver.lastKeyIndex + 1]) {
+                    keyIndex = driver.lastKeyIndex + 1;
+                }
+                else {
+                    doBinarySearch = true;
+                }
             }
         }
 
+        // If the appropriate index is not the same or directly afterwards, then do binary search to quickly look through the rest
+        // This should only come up if we skip or the animation resets
         if (doBinarySearch) {
             auto it = std::upper_bound(driver.keyTimes.begin(), driver.keyTimes.end(), time);
             keyIndex = std::distance(driver.keyTimes.begin(), it);
@@ -236,7 +256,14 @@ void Scene::updateAnimation(float time) {
                 interpolatedValue = first * (1 - t) + last * t;
             }
             else if (driver.interpolation == DRIVER_SLERP) {
-                // TODO: IMPLEMENT SLERP INTERPOLATION
+                Vec4<float> first = driver.keyValues[keyIndex - 1];
+                Vec4<float> last = driver.keyValues[keyIndex];
+                float t = (time - driver.keyTimes[keyIndex - 1]) / (driver.keyTimes[keyIndex] - driver.keyTimes[keyIndex - 1]);
+
+                // Calculate the angle between the first and last values for use in slerp
+                float angle = std::acos(linear::dot(first, last) / (linear::length(first) * linear::length(last)));
+                float invSinAngle = 1.0f / std::sin(angle);
+                interpolatedValue = std::sin((1.0f - t) * angle) * invSinAngle * first + std::sin(t * angle) * invSinAngle * last;
             }
         }
 

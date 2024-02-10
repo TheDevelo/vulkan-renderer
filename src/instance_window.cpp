@@ -19,6 +19,7 @@ static double prevYPos = 0.0f;
 
 static void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     RenderInstance* instance = reinterpret_cast<RenderInstance*>(glfwGetWindowUserPointer(window));
+    // Camera selection controls
     if (key == GLFW_KEY_Z && action == GLFW_PRESS) {
         instance->eventQueue.emplace_back(RenderInstanceEvent {
             .type = RI_EV_USE_USER_CAMERA,
@@ -35,7 +36,7 @@ static void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int actio
         });
     }
 
-    // WASD for user camera control
+    // User camera control
     if (key == GLFW_KEY_W && action != GLFW_REPEAT) {
         wHeld = action == GLFW_PRESS;
     }
@@ -49,10 +50,19 @@ static void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int actio
         dHeld = action == GLFW_PRESS;
     }
 
+    // Mouse capture control for user camera
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS && mouseCaptured) {
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         mouseCaptured = false;
     }
+
+    // Animation toggle
+    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
+        instance->eventQueue.emplace_back(RenderInstanceEvent {
+            .type = RI_EV_TOGGLE_ANIMATION,
+        });
+    }
+
 }
 
 static void glfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {

@@ -44,12 +44,19 @@ struct UserCameraRotateEvent {
     float zRadians;
 };
 
+struct SetAnimationEvent {
+    float time;
+    float rate;
+};
+
 enum RenderInstanceEventType {
     RI_EV_SWAP_FIXED_CAMERA, // Also will switch to fixed camera from user/debug camera
     RI_EV_USE_USER_CAMERA,
     RI_EV_USE_DEBUG_CAMERA,
     RI_EV_USER_CAMERA_MOVE,
     RI_EV_USER_CAMERA_ROTATE,
+    RI_EV_TOGGLE_ANIMATION,
+    RI_EV_SET_ANIMATION,
     RI_EV_INTERNAL_AVAILABLE,
 };
 
@@ -58,6 +65,7 @@ struct RenderInstanceEvent {
     union {
         UserCameraMoveEvent userCameraMoveData;
         UserCameraRotateEvent userCameraRotateData;
+        SetAnimationEvent setAnimationData;
     };
 };
 
