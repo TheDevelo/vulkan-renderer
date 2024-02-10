@@ -94,9 +94,9 @@ public:
 
     // Acquire/Present a render image
     // acquireImage takes in a semaphore that will be signaled once the dstImageIndex is available
-    RenderInstanceImageStatus acquireImage(VkSemaphore availableSemaphore, uint32_t& dstImageIndex);
+    RenderInstanceImageStatus acquireImage(VkSemaphore availableSemaphore, uint64_t semaphoreCurVal, uint32_t& dstImageIndex);
     // presentImage takes in a semaphore to wait on before we can present the image
-    RenderInstanceImageStatus presentImage(VkSemaphore renderFinishedSemaphore, uint32_t imageIndex);
+    RenderInstanceImageStatus presentImage(VkSemaphore renderFinishedSemaphore, uint64_t semaphoreCurVal, uint32_t imageIndex);
 
     // Windowing events
     bool shouldClose();
@@ -133,17 +133,23 @@ private:
     // Would have liked to use CombinedImage for these, but it requires a shared_ptr to RenderInstance. So manual management it is.
     std::vector<VkImage> headlessRenderImages;
     std::vector<VkDeviceMemory> headlessRenderImagesMemory;
+
     std::vector<VkSemaphore> renderingSemaphores;
-    std::vector<uint32_t> renderingSemaphoreValues;
+    std::vector<uint64_t> renderingSemaphoreValues; // The timeline semaphore value we are waiting for
+
     uint32_t lastUsedImage;
+
+    VkBuffer imageCopyBuffer;
+    VkDeviceMemory imageCopyBufferMemory;
+    void* imageCopyBufferMap;
 
     // Fake window (headless) functions
     void initHeadless();
     void cleanupHeadless();
     bool shouldCloseHeadless();
     void processEventsHeadless();
-    RenderInstanceImageStatus acquireImageHeadless(VkSemaphore availableSemaphore, uint32_t& dstImageIndex);
-    RenderInstanceImageStatus presentImageHeadless(VkSemaphore renderFinishedSemaphore, uint32_t imageIndex);
+    RenderInstanceImageStatus acquireImageHeadless(VkSemaphore availableSemaphore, uint64_t semaphoreCurVal, uint32_t& dstImageIndex);
+    RenderInstanceImageStatus presentImageHeadless(VkSemaphore renderFinishedSemaphore, uint64_t semaphoreCurVal, uint32_t imageIndex);
 
     // Vulkan instance init functions
     void initVulkanInstance();

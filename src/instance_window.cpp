@@ -259,7 +259,6 @@ VkExtent2D RenderInstance::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capa
 
     // Get the window size in pixels, irregardles of the screen scaling
     // Replace with X11 code later...
-    // TODO: EXTEND FOR HEADLESS!!!
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
 

@@ -97,6 +97,7 @@ RenderInstance::RenderInstance(RenderInstanceOptions const& opts) {
 // Cleanup destructor for our render instance
 RenderInstance::~RenderInstance() {
     if (options::isHeadless()) {
+        cleanupHeadless();
     }
     else {
         // Clean up the swapchain, surface, and window
@@ -129,7 +130,7 @@ void RenderInstance::initVulkanInstance() {
         .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
         .pEngineName = "Fuchsian Engine",
         .engineVersion = VK_MAKE_VERSION(1, 0, 0),
-        .apiVersion = VK_API_VERSION_1_0,
+        .apiVersion = VK_API_VERSION_1_2,
     };
 
     // Need to get extensions required for Vulkan before we can request our instance
@@ -266,8 +267,13 @@ void RenderInstance::initVulkanDevice() {
     VkPhysicalDeviceFeatures deviceFeatures {
         .samplerAnisotropy = VK_TRUE,
     };
+    VkPhysicalDeviceVulkan12Features vulkan12Features {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .timelineSemaphore = VK_TRUE,
+    };
     VkDeviceCreateInfo deviceCreateInfo {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext = &vulkan12Features,
         .queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
         .pQueueCreateInfos = queueCreateInfos.data(),
         .enabledLayerCount = 0,
@@ -402,18 +408,18 @@ void RenderInstance::createCommandPool() {
 }
 
 // Interaction functions that forward to real/headless
-RenderInstanceImageStatus RenderInstance::acquireImage(VkSemaphore availableSemaphore, uint32_t& dstImageIndex) {
+RenderInstanceImageStatus RenderInstance::acquireImage(VkSemaphore availableSemaphore, uint64_t semaphoreCurVal, uint32_t& dstImageIndex) {
     if (options::isHeadless()) {
-        return acquireImageHeadless(availableSemaphore, dstImageIndex);
+        return acquireImageHeadless(availableSemaphore, semaphoreCurVal, dstImageIndex);
     }
     else {
         return acquireImageReal(availableSemaphore, dstImageIndex);
     }
 }
 
-RenderInstanceImageStatus RenderInstance::presentImage(VkSemaphore renderFinishedSemaphore, uint32_t imageIndex) {
+RenderInstanceImageStatus RenderInstance::presentImage(VkSemaphore renderFinishedSemaphore, uint64_t semaphoreCurVal, uint32_t imageIndex) {
     if (options::isHeadless()) {
-        return presentImageHeadless(renderFinishedSemaphore, imageIndex);
+        return presentImageHeadless(renderFinishedSemaphore, semaphoreCurVal, imageIndex);
     }
     else {
         return presentImageReal(renderFinishedSemaphore, imageIndex);

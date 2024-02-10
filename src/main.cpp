@@ -105,8 +105,12 @@ private:
 
     std::vector<VkCommandBuffer> commandBuffers;
 
+    // NOTE: the semaphore values encode the expected value once all in flight frames are finished rendering
+    // Thus when the next frame starts rendering, we wait on values past the previous frames
     std::vector<VkSemaphore> imageAvailableSemaphores;
+    std::vector<uint64_t> imageAvailableSemaphoreValues;
     std::vector<VkSemaphore> renderFinishedSemaphores;
+    std::vector<uint64_t> renderFinishedSemaphoreValues;
     std::vector<VkFence> inFlightFences;
 
     uint32_t currentFrame = 0;
@@ -155,6 +159,10 @@ private:
             .attachment = 0,
             .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         };
+        if (options::isHeadless()) {
+            // If we're headless, then using PRESENT_SRC_KHR makes no sense. So just use COLOR_ATTACHMENT_OPTIMAL
+            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        }
 
         // This attachment describes the depth buffer
         VkAttachmentDescription depthAttachment {
@@ -451,9 +459,9 @@ private:
                                                        VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
         // Copy staging buffer to our image and prepare it for shader reads
-        transitionImageLayout(textureImage->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        copyBufferToImage(stagingBuffer.buffer, textureImage->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight));
-        transitionImageLayout(textureImage->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        transitionImageLayout(*renderInstance, textureImage->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        copyBufferToImage(*renderInstance, stagingBuffer.buffer, textureImage->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight));
+        transitionImageLayout(*renderInstance, textureImage->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         // Create the texture image view
         textureImageView = createImageView(renderInstance->device, textureImage->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -483,71 +491,6 @@ private:
         };
 
         VK_ERR(vkCreateSampler(renderInstance->device, &samplerInfo, nullptr, &textureSampler), "failed to create texture sampler!");
-    }
-
-    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
-        VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
-
-        VkImageMemoryBarrier barrier {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .oldLayout = oldLayout,
-            .newLayout = newLayout,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = image,
-            .subresourceRange = VkImageSubresourceRange {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-        };
-
-        // Determine the source and destination stages/access masks. Currently hardcoded for our old/new layout pairs, maybe there is a more dynamic way to do this?
-        VkPipelineStageFlags srcStage;
-        VkPipelineStageFlags dstStage;
-        if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-            barrier.srcAccessMask = 0;
-            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-            dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        }
-        else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-            dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        }
-        else {
-            throw std::invalid_argument("unsupported layout transition!");
-        }
-
-        vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-        endSingleUseCBuffer(*renderInstance, commandBuffer);
-    }
-
-    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
-        VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
-
-        VkBufferImageCopy region {
-            .bufferOffset = 0,
-            .bufferRowLength = 0,
-            .bufferImageHeight = 0,
-            .imageSubresource = VkImageSubresourceLayers {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .mipLevel = 0,
-                .baseArrayLayer = 0,
-                .layerCount = 1,
-            },
-            .imageOffset = { 0, 0, 0 },
-            .imageExtent = { width, height, 1 },
-        };
-
-        vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-        endSingleUseCBuffer(*renderInstance, commandBuffer);
     }
 
     void createUniformBuffers() {
@@ -638,19 +581,37 @@ private:
     // Create the synchronization objects for rendering to our screen
     void createSyncObjects() {
         imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+        imageAvailableSemaphoreValues.resize(MAX_FRAMES_IN_FLIGHT);
         renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+        renderFinishedSemaphoreValues.resize(MAX_FRAMES_IN_FLIGHT);
         inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
 
-        VkSemaphoreCreateInfo semaphoreInfo { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, };
+        // Timeline semaphore struct is out here so that it doesn't drop out of scope by the time we create our semaphores
+        VkSemaphoreTypeCreateInfo timelineSemaphoreInfo {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+            .pNext = NULL,
+            .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+            .initialValue = 0,
+        };
+        VkSemaphoreCreateInfo semaphoreInfo {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        };
         VkFenceCreateInfo fenceInfo {
             .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
             .flags = VK_FENCE_CREATE_SIGNALED_BIT,
         };
 
+        // Only use timeline semaphores on headless mode, because the swapchain doesn't support them :(
+        if (options::isHeadless()) {
+            semaphoreInfo.pNext = &timelineSemaphoreInfo;
+        }
+
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             VK_ERR(vkCreateSemaphore(renderInstance->device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]), "failed to create semaphores!");
             VK_ERR(vkCreateSemaphore(renderInstance->device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]), "failed to create semaphores!");
             VK_ERR(vkCreateFence(renderInstance->device, &fenceInfo, nullptr, &inFlightFences[i]), "failed to create semaphores!");
+            imageAvailableSemaphoreValues[i] = 0;
+            renderFinishedSemaphoreValues[i] = 0;
         }
     }
 
@@ -733,7 +694,7 @@ private:
 
         // Acquire the next image on the swapchain for us to render to
         uint32_t imageIndex;
-        RenderInstanceImageStatus result = renderInstance->acquireImage(imageAvailableSemaphores[currentFrame], imageIndex);
+        RenderInstanceImageStatus result = renderInstance->acquireImage(imageAvailableSemaphores[currentFrame], imageAvailableSemaphoreValues[currentFrame], imageIndex);
 
         if (result == RI_TARGET_REBUILD) {
             recreateFramebuffers();
@@ -757,7 +718,16 @@ private:
         // Submit our command buffer for rendering!
         VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
         VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        uint64_t waitValues[] = { imageAvailableSemaphoreValues[currentFrame] + 1 };
         VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
+        uint64_t signalValues[] = { renderFinishedSemaphoreValues[currentFrame] + 1 };
+        VkTimelineSemaphoreSubmitInfo timelineInfo {
+            .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+            .waitSemaphoreValueCount = 1,
+            .pWaitSemaphoreValues = waitValues,
+            .signalSemaphoreValueCount = 1,
+            .pSignalSemaphoreValues = signalValues,
+        };
         VkSubmitInfo submitInfo {
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .waitSemaphoreCount = 1,
@@ -768,11 +738,15 @@ private:
             .signalSemaphoreCount = 1,
             .pSignalSemaphores = signalSemaphores,
         };
+        if (options::isHeadless()) {
+            // Only enable timeline semaphores on headless
+            submitInfo.pNext = &timelineInfo;
+        }
 
         VK_ERR(vkQueueSubmit(renderInstance->graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]), "failed to submit draw command buffer!");
 
         // Present the frame onto the screen
-        result = renderInstance->presentImage(renderFinishedSemaphores[currentFrame], imageIndex);
+        result = renderInstance->presentImage(renderFinishedSemaphores[currentFrame], renderFinishedSemaphoreValues[currentFrame], imageIndex);
 
         if (result == RI_TARGET_REBUILD) {
             recreateFramebuffers();
@@ -780,6 +754,8 @@ private:
             PANIC("failed to present swap chain image!");
         }
 
+        imageAvailableSemaphoreValues[currentFrame] += 1;
+        renderFinishedSemaphoreValues[currentFrame] += 1;
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
