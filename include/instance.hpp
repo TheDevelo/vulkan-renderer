@@ -3,6 +3,7 @@
 #include <GLFW/glfw3.h>
 
 #include <optional>
+#include <thread>
 #include <vector>
 
 // Options for the render instance constructor
@@ -142,6 +143,8 @@ private:
     VkBuffer imageCopyBuffer;
     VkDeviceMemory imageCopyBufferMemory;
     void* imageCopyBufferMap;
+
+    std::vector<std::thread> imageWriters;
 
     // Fake window (headless) functions
     void initHeadless();

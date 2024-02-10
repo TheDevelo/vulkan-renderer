@@ -120,6 +120,10 @@ RenderInstance::~RenderInstance() {
         UVkDestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
     }
     vkDestroyInstance(instance, nullptr);
+
+    for (std::thread& writer : imageWriters) {
+        writer.join();
+    }
 }
 
 // Create our instance along with our debugging layer if enabled

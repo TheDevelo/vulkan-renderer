@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <cstring>
 
 #include "instance.hpp"
 #include "options.hpp"
@@ -77,13 +78,23 @@ void RenderInstance::processEventsHeadless() {
         transitionImageLayout(*this, headlessRenderImages[lastReleasedImage], renderImageFormat, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
         // Output the copied image to file using the ppm file format
-        std::ofstream outputImage(string_format("output%d.ppm", x/100), std::ios::out | std::ios::binary);
-        std::string header = string_format("P6 %d %d 255\n", renderImageExtent.width, renderImageExtent.height);
-        outputImage.write(header.c_str(), header.size());
-        for (uint32_t p = 0; p < renderImageExtent.width * renderImageExtent.height; p++) {
-            // Need to copy pixel by pixel since PPM doesn't support alpha
-            outputImage.write(reinterpret_cast<const char*>(imageCopyBufferMap) + p * 4, 3);
-        }
+        // We first copy to a secondary buffer because writing to the file itself comparitively very long
+        // That way, we can throw it into a thread and have it work in the background
+        std::unique_ptr<uint8_t[]> imageCopy(new uint8_t[renderImageExtent.width * renderImageExtent.height * 4]);
+        memcpy(imageCopy.get(), imageCopyBufferMap, renderImageExtent.width * renderImageExtent.height * 4);
+
+        std::thread writer([renderImageExtent = renderImageExtent, imageCopy = move(imageCopy)] {
+            std::ofstream outputImage(string_format("output%d.ppm", x/100), std::ios::out | std::ios::binary);
+
+            std::string header = string_format("P6 %d %d 255\n", renderImageExtent.width, renderImageExtent.height);
+            outputImage.write(header.c_str(), header.size());
+
+            for (uint32_t p = 0; p < renderImageExtent.width * renderImageExtent.height; p++) {
+                // Need to copy pixel by pixel since PPM doesn't support alpha
+                outputImage.write(reinterpret_cast<const char*>(imageCopy.get()) + p * 4, 3);
+            }
+        });
+        imageWriters.push_back(move(writer));
     }
 }
 
