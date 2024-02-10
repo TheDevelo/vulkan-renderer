@@ -14,4 +14,6 @@ namespace options {
     uint32_t getWindowWidth();
     uint32_t getWindowHeight();
     bool logFrameTimes();
+    bool isHeadless();
+    std::string getHeadlessEventsPath();
 }

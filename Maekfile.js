@@ -43,6 +43,7 @@ const VKRenderer_objs = [
 
 	maek.CPP('src/instance.cpp'),
 	maek.CPP('src/instance_window.cpp'),
+	maek.CPP('src/instance_headless.cpp'),
 
 	maek.CPP('src/scene.cpp'),
 	maek.CPP('src/scene_loader.cpp'),

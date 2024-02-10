@@ -13,6 +13,7 @@ static bool enableValidation = false;
 static uint32_t windowWidth = 1280;
 static uint32_t windowHeight = 960;
 static bool logFrameTimesBool = false;
+static std::optional<std::string> headlessEventsPath;
 
 namespace options {
     void parse(int argc, char** argv) {
@@ -73,6 +74,14 @@ namespace options {
             else if (currentArg == "--log-frame-times") {
                 logFrameTimesBool = true;
             }
+            else if (currentArg == "--headless") {
+                currentIndex += 1;
+                if (currentIndex >= argc) {
+                    PANIC("missing argument to --headless");
+                }
+
+                headlessEventsPath = args[currentIndex];
+            }
             else {
                 PANIC("invalid command line argument: " + std::string(currentArg));
             }
@@ -119,5 +128,13 @@ namespace options {
 
     bool logFrameTimes() {
         return logFrameTimesBool;
+    }
+
+    bool isHeadless() {
+        return headlessEventsPath.has_value();
+    }
+
+    std::string getHeadlessEventsPath() {
+        return headlessEventsPath.value();
     }
 }

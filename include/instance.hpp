@@ -100,10 +100,12 @@ public:
 
     // Windowing events
     bool shouldClose();
-    void processWindowEvents();
+    void processEvents();
     std::vector<RenderInstanceEvent> eventQueue;
 
-    inline QueueFamilyIndices getQueueFamilies();
+    inline QueueFamilyIndices getQueueFamilies() {
+        return findQueueFamilies(physicalDevice);
+    };
 
 private:
     // Real window state
@@ -111,16 +113,37 @@ private:
     VkSwapchainKHR swapChain;
     std::vector<VkImage> swapChainImages;
 
-    // Real window init functions
+    // Real window functions
     void initRealWindow();
     void createRealSwapChain();
     void recreateSwapChain();
     void cleanupRealSwapChain();
 
+    bool shouldCloseReal();
+    void processEventsReal();
+    RenderInstanceImageStatus acquireImageReal(VkSemaphore availableSemaphore, uint32_t& dstImageIndex);
+    RenderInstanceImageStatus presentImageReal(VkSemaphore renderFinishedSemaphore, uint32_t imageIndex);
+
     // Helper for real window inits
     VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
     VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availableModes);
     VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
+
+    // Fake window state
+    // Would have liked to use CombinedImage for these, but it requires a shared_ptr to RenderInstance. So manual management it is.
+    std::vector<VkImage> headlessRenderImages;
+    std::vector<VkDeviceMemory> headlessRenderImagesMemory;
+    std::vector<VkSemaphore> renderingSemaphores;
+    std::vector<uint32_t> renderingSemaphoreValues;
+    uint32_t lastUsedImage;
+
+    // Fake window (headless) functions
+    void initHeadless();
+    void cleanupHeadless();
+    bool shouldCloseHeadless();
+    void processEventsHeadless();
+    RenderInstanceImageStatus acquireImageHeadless(VkSemaphore availableSemaphore, uint32_t& dstImageIndex);
+    RenderInstanceImageStatus presentImageHeadless(VkSemaphore renderFinishedSemaphore, uint32_t imageIndex);
 
     // Vulkan instance init functions
     void initVulkanInstance();

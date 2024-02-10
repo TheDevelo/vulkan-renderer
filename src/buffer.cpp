@@ -1,6 +1,8 @@
 #include <vulkan/vulkan.h>
 
 #include "buffer.hpp"
+#include "instance.hpp"
+#include "linear.hpp"
 #include "util.hpp"
 
 CombinedBuffer::CombinedBuffer(std::shared_ptr<RenderInstance>& renderInstanceIn, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memProps) : renderInstance(renderInstanceIn) {
@@ -30,6 +32,47 @@ CombinedBuffer::CombinedBuffer(std::shared_ptr<RenderInstance>& renderInstanceIn
 CombinedBuffer::~CombinedBuffer() {
     vkDestroyBuffer(renderInstance->device, buffer, nullptr);
     vkFreeMemory(renderInstance->device, bufferMemory, nullptr);
+}
+
+CombinedImage::CombinedImage(std::shared_ptr<RenderInstance>& renderInstanceIn, uint32_t width, uint32_t height,
+                             VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps) : renderInstance(renderInstanceIn) {
+    createImage(*renderInstance, width, height, format, tiling, usage, memProps, image, imageMemory);
+}
+
+void createImage(RenderInstance const& renderInstance, uint32_t width, uint32_t height, VkFormat format,
+                 VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImage& image, VkDeviceMemory& imageMemory) {
+    VkImageCreateInfo imageInfo {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .format = format,
+        .extent = { width, height, 1 },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .tiling = tiling,
+        .usage = usage,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    };
+
+    VK_ERR(vkCreateImage(renderInstance.device, &imageInfo, nullptr, &image), "failed to create image!");
+
+    VkMemoryRequirements memRequirements;
+    vkGetImageMemoryRequirements(renderInstance.device, image, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+        .allocationSize = memRequirements.size,
+        .memoryTypeIndex = findMemoryType(renderInstance, memRequirements.memoryTypeBits, memProps),
+    };
+
+    VK_ERR(vkAllocateMemory(renderInstance.device, &allocInfo, nullptr, &imageMemory), "failed to allocate image memory!");
+    vkBindImageMemory(renderInstance.device, image, imageMemory, 0);
+}
+
+CombinedImage::~CombinedImage() {
+    vkDestroyImage(renderInstance->device, image, nullptr);
+    vkFreeMemory(renderInstance->device, imageMemory, nullptr);
 }
 
 void copyBuffers(RenderInstance const& renderInstance, BufferCopy* bufferCopyInfos, uint32_t bufferCopyCount) {

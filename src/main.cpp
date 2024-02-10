@@ -90,13 +90,11 @@ private:
 
     std::vector<VkFramebuffer> renderTargetFramebuffers;
 
-    VkImage textureImage;
-    VkDeviceMemory textureImageMemory;
+    std::unique_ptr<CombinedImage> textureImage;
     VkImageView textureImageView;
     VkSampler textureSampler;
 
-    VkImage depthImage;
-    VkDeviceMemory depthImageMemory;
+    std::unique_ptr<CombinedImage> depthImage;
     VkImageView depthImageView;
 
     std::vector<CombinedBuffer> uniformBuffers;
@@ -422,10 +420,9 @@ private:
     }
 
     void createDepthImage() {
-        createImage(renderInstance->renderImageExtent.width, renderInstance->renderImageExtent.height, VK_FORMAT_D32_SFLOAT,
-                    VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                    depthImage, depthImageMemory);
-        depthImageView = createImageView(renderInstance->device, depthImage, VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT);
+        depthImage = std::make_unique<CombinedImage>(renderInstance, renderInstance->renderImageExtent.width, renderInstance->renderImageExtent.height,
+                                                     VK_FORMAT_D32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        depthImageView = createImageView(renderInstance->device, depthImage->image, VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT);
     }
 
     // Create a texture and its associated image view
@@ -450,17 +447,16 @@ private:
         stbi_image_free(pixels);
 
         // Create the GPU-side image
-        createImage(static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), VK_FORMAT_R8G8B8A8_SRGB,
-                    VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                    textureImage, textureImageMemory);
+        textureImage = std::make_unique<CombinedImage>(renderInstance, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), VK_FORMAT_R8G8B8A8_SRGB,
+                                                       VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
         // Copy staging buffer to our image and prepare it for shader reads
-        transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        copyBufferToImage(stagingBuffer.buffer, textureImage, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight));
-        transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        transitionImageLayout(textureImage->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        copyBufferToImage(stagingBuffer.buffer, textureImage->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight));
+        transitionImageLayout(textureImage->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         // Create the texture image view
-        textureImageView = createImageView(renderInstance->device, textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
+        textureImageView = createImageView(renderInstance->device, textureImage->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
     }
 
     // Create a texture sampler (not per image)
@@ -487,36 +483,6 @@ private:
         };
 
         VK_ERR(vkCreateSampler(renderInstance->device, &samplerInfo, nullptr, &textureSampler), "failed to create texture sampler!");
-    }
-
-    void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImage& image, VkDeviceMemory& imageMemory) {
-        VkImageCreateInfo imageInfo {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-            .imageType = VK_IMAGE_TYPE_2D,
-            .format = format,
-            .extent = { width, height, 1 },
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .tiling = tiling,
-            .usage = usage,
-            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        };
-
-        VK_ERR(vkCreateImage(renderInstance->device, &imageInfo, nullptr, &image), "failed to create image!");
-
-        VkMemoryRequirements memRequirements;
-        vkGetImageMemoryRequirements(renderInstance->device, image, &memRequirements);
-
-        VkMemoryAllocateInfo allocInfo {
-            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .allocationSize = memRequirements.size,
-            .memoryTypeIndex = findMemoryType(*renderInstance, memRequirements.memoryTypeBits, memProps),
-        };
-
-        VK_ERR(vkAllocateMemory(renderInstance->device, &allocInfo, nullptr, &imageMemory), "failed to allocate image memory!");
-        vkBindImageMemory(renderInstance->device, image, imageMemory, 0);
     }
 
     void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
@@ -696,7 +662,7 @@ private:
             auto startTime = std::chrono::high_resolution_clock::now();
 
             // Process events
-            renderInstance->processWindowEvents();
+            renderInstance->processEvents();
             for (RenderInstanceEvent event : renderInstance->eventQueue) {
                 if (event.type == RI_EV_SWAP_FIXED_CAMERA) {
                     if (scene.useUserCamera) {
@@ -762,7 +728,7 @@ private:
     }
 
     void drawFrame() {
-        // Wait for the last frame to be drawn. These are array functions, hence the 1
+        // Wait for the frame in the currentFrame slot to finish drawing. These are array functions, hence the 1
         vkWaitForFences(renderInstance->device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
         // Acquire the next image on the swapchain for us to render to
@@ -911,8 +877,6 @@ public:
 
         vkDestroySampler(renderInstance->device, textureSampler, nullptr);
         vkDestroyImageView(renderInstance->device, textureImageView, nullptr);
-        vkDestroyImage(renderInstance->device, textureImage, nullptr);
-        vkFreeMemory(renderInstance->device, textureImageMemory, nullptr);
 
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(renderInstance->device, imageAvailableSemaphores[i], nullptr);
@@ -929,8 +893,6 @@ public:
 private:
     void cleanupFramebuffers() {
         vkDestroyImageView(renderInstance->device, depthImageView, nullptr);
-        vkDestroyImage(renderInstance->device, depthImage, nullptr);
-        vkFreeMemory(renderInstance->device, depthImageMemory, nullptr);
 
         for (VkFramebuffer framebuffer : renderTargetFramebuffers) {
             vkDestroyFramebuffer(renderInstance->device, framebuffer, nullptr);
