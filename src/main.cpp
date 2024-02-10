@@ -66,6 +66,14 @@ struct Vertex {
     }
 };
 
+// Shader arrays
+const uint32_t vertShaderArray[] =
+#include "shaders/shader.vert.inl"
+;
+const uint32_t fragShaderArray[] =
+#include "shaders/shader.frag.inl"
+;
+
 class VKRendererApp {
 public:
     void run() {
@@ -239,11 +247,8 @@ private:
     // Creates the basic graphics pipeline for our renderer
     void createGraphicsPipeline() {
         // Load in the vertex and fragment shaders
-        std::vector<char> vertShaderCode = readFile("shaders/vert.spv");
-        std::vector<char> fragShaderCode = readFile("shaders/frag.spv");
-
-        VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
-        VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+        VkShaderModule vertShaderModule = createShaderModule(vertShaderArray, sizeof(vertShaderArray));
+        VkShaderModule fragShaderModule = createShaderModule(fragShaderArray, sizeof(fragShaderArray));
 
         // Create the shader stages for our pipeline
         VkPipelineShaderStageCreateInfo vertShaderStageInfo {
@@ -378,11 +383,11 @@ private:
         vkDestroyShaderModule(renderInstance->device, fragShaderModule, nullptr);
     }
 
-    VkShaderModule createShaderModule(const std::vector<char>& code) {
+    VkShaderModule createShaderModule(const uint32_t* spirvCode, size_t spirvSize) {
         VkShaderModuleCreateInfo moduleCreateInfo {
             .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-            .codeSize = code.size(),
-            .pCode = reinterpret_cast<const uint32_t*>(code.data()),
+            .codeSize = spirvSize,
+            .pCode = spirvCode,
         };
 
         VkShaderModule shaderModule;

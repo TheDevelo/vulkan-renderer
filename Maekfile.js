@@ -20,22 +20,31 @@ const maek = init_maek();
 //Read onward to discover how to configure Maek for your build!
 //======================================================================
 
+
+// Build our glsl shaders first
+const shaders = [
+	maek.GLSLC('shaders/shader.vert'),
+	maek.GLSLC('shaders/shader.frag'),
+];
+
 //set default targets to build (can be overridden by command line options):
-maek.TARGETS = ["bin/viewer" + (maek.OS === "windows" ? ".exe" : "")];
+maek.TARGETS = ["bin/viewer"];
 
 // Set CPP options
 maek.options.CPPFlags.push(
 	"-O2", //optimize
 	`-Iext`, // include external libraries
 	"-Iinclude", //include internal headers
+	"-Ispirv", //include spriv inline headers
 );
 
 //'[objFile =] CPP(cppFile [, objFileBase] [, options])' compiles a c++ file:
 // cppFile: name of c++ file to compile
 // objFileBase (optional): base name object file to produce (if not supplied, set to options.objDir + '/' + cppFile without the extension)
 //returns objFile: objFileBase + a platform-dependant suffix ('.o' or '.obj')
+
 const VKRenderer_objs = [
-	maek.CPP('src/main.cpp'),
+	maek.CPP('src/main.cpp', undefined, { depends: [...shaders] }), // Includes our shaders, so depends on the shader tasks
 	maek.CPP('src/util.cpp'),
 	maek.CPP('src/buffer.cpp'),
 	maek.CPP('src/json.cpp'),
@@ -127,6 +136,10 @@ function init_maek() {
 		CPPFlags: [], //extra flags for c++ compiler
 		LINK: [], //the linker and any flags to start with (set below, per-OS)
 		LINKLibs: [], //extra -L and -l flags for linker
+		GLSLC: ['glslc', '-Werror', '-g', '-mfmt=c', '--target-env=vulkan1.2'],
+		GLSLCFlags: [],
+		spirvSuffix: '.inl',
+		spirvPrefix: 'spirv/',
 	}
 
 	if (maek.OS === 'windows') {
@@ -315,6 +328,52 @@ function init_maek() {
 
 		return exeFile;
 	};
+
+	// === GLSLC Compilation rule (adapted from Jim's GLSLC rule)
+	// maek.GLSLC compiles a .vert or .frag glsl shader into an inline SPIRV array
+	// glslFile is the source glsl shader (Add '-fshader-stage=...' if not .vert or .frag (or other glslc extensions))
+	// spirvFileBase (optional) is the output file (including any subdirectories, but not the extension)
+	maek.GLSLC = (glslFile, spirvFileBase, localOptions = {}) => {
+		const path = require('path').posix;
+		const fsPromises = require('fs').promises;
+
+		// Combine global and local options
+		const options = combineOptions(localOptions);
+
+		// Compute the file name if we aren't given one explicitly
+		if (typeof spirvFileBase === 'undefined') {
+			spirvFileBase = path.relative('', options.spirvPrefix + glslFile, '');
+		}
+
+		const spirvFile = spirvFileBase + options.spirvSuffix;
+		const glslc = [...options.GLSLC, ...options.GLSLCFlags];
+		const command = [...glslc, '-o', spirvFile, glslFile];
+
+		// Run GLSLC to build the shader
+		const task = async () => {
+			// Create enclosing directory in case it doesn't exist
+			await fsPromises.mkdir(path.dirname(spirvFile), { recursive: true });
+			await run(command, `${task.label}: compile`,
+				async () => {
+					return {
+						read:[glslFile],
+						written:[spirvFile]
+					};
+				}
+			);
+		};
+
+		// Save the task
+		task.depends = [glslFile, ...options.depends];
+		task.label = `GLSLC ${spirvFile}`;
+		if (spirvFile in maek.tasks) {
+			throw new Error(`Task ${task.label} wants to create ${spirvFile}, but ${maek.tasks[spirvFile].label} already creates that file.`);
+		}
+		maek.tasks[spirvFile] = task;
+
+		return spirvFile;
+	};
+	// ===
 
 
 	//says something went wrong in building -- should fail loudly:
