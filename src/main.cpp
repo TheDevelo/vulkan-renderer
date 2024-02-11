@@ -56,9 +56,11 @@ private:
 
     std::vector<VkFramebuffer> renderTargetFramebuffers;
 
+    /* TODO: Bring back for texture materials
     std::unique_ptr<CombinedImage> textureImage;
     VkImageView textureImageView;
     VkSampler textureSampler;
+    */
 
     std::unique_ptr<CombinedImage> depthImage;
     VkImageView depthImageView;
@@ -91,8 +93,10 @@ private:
         createDepthImage();
         createFramebuffers();
 
+        /* TODO: Bring back for texture materials
         createTextureImage();
         createTextureSampler();
+        */
 
         createUniformBuffers();
         createDescriptorSets();
@@ -184,6 +188,7 @@ private:
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
         };
+        /* TODO: Bring back for texture materials
         VkDescriptorSetLayoutBinding samplerLayoutBinding {
             .binding = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -193,6 +198,9 @@ private:
         };
 
         std::array<VkDescriptorSetLayoutBinding, 2> bindings = { mvpLayoutBinding, samplerLayoutBinding };
+        */
+
+        std::array<VkDescriptorSetLayoutBinding, 1> bindings = { mvpLayoutBinding };
         VkDescriptorSetLayoutCreateInfo layoutInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .bindingCount = static_cast<uint32_t>(bindings.size()),
@@ -396,6 +404,7 @@ private:
         depthImageView = createImageView(renderInstance->device, depthImage->image, VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT);
     }
 
+    /* TODO: Bring back for texture materials
     // Create a texture and its associated image view
     void createTextureImage() {
         // Load the texture
@@ -455,6 +464,7 @@ private:
 
         VK_ERR(vkCreateSampler(renderInstance->device, &samplerInfo, nullptr, &textureSampler), "failed to create texture sampler!");
     }
+    */
 
     void createUniformBuffers() {
         VkDeviceSize bufferSize = sizeof(ViewProjMatrices);
@@ -470,6 +480,7 @@ private:
 
     void createDescriptorSets() {
         // Create the descriptor pool
+        /* TODO: Bring back for texture materials
         std::array<VkDescriptorPoolSize, 2> poolSizes {{
             {
                 .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -477,6 +488,13 @@ private:
             },
             {
                 .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+            }
+        }};
+        */
+        std::array<VkDescriptorPoolSize, 1> poolSizes {{
+            {
+                .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                 .descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
             }
         }};
@@ -510,6 +528,7 @@ private:
                 .range = sizeof(ViewProjMatrices),
             };
 
+            /* TODO: Bring back for texture materials
             VkDescriptorImageInfo imageInfo {
                 .sampler = textureSampler,
                 .imageView = textureImageView,
@@ -534,6 +553,19 @@ private:
                     .descriptorCount = 1,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .pImageInfo = &imageInfo,
+                }
+            }};
+            */
+
+            std::array<VkWriteDescriptorSet, 1> descriptorWrites {{
+                {
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = descriptorSets[i],
+                    .dstBinding = 0,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .pBufferInfo = &bufferInfo,
                 }
             }};
 
@@ -819,8 +851,10 @@ public:
 
         vkDestroyDescriptorPool(renderInstance->device, descriptorPool, nullptr);
 
+        /* TODO: Bring back for texture materials
         vkDestroySampler(renderInstance->device, textureSampler, nullptr);
         vkDestroyImageView(renderInstance->device, textureImageView, nullptr);
+        */
 
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(renderInstance->device, imageAvailableSemaphores[i], nullptr);
