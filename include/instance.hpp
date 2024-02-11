@@ -4,6 +4,7 @@
 
 #include <optional>
 #include <thread>
+#include <variant>
 #include <vector>
 
 // Options for the render instance constructor
@@ -50,6 +51,14 @@ struct SetAnimationEvent {
     float rate;
 };
 
+struct InternalSaveEvent {
+    std::string outputPath;
+};
+
+struct InternalMarkEvent {
+    std::string message;
+};
+
 enum RenderInstanceEventType {
     RI_EV_SWAP_FIXED_CAMERA, // Also will switch to fixed camera from user/debug camera
     RI_EV_USE_USER_CAMERA,
@@ -59,15 +68,20 @@ enum RenderInstanceEventType {
     RI_EV_TOGGLE_ANIMATION,
     RI_EV_SET_ANIMATION,
     RI_EV_INTERNAL_AVAILABLE,
+    RI_EV_INTERNAL_SAVE,
+    RI_EV_INTERNAL_MARK,
 };
 
 struct RenderInstanceEvent {
     RenderInstanceEventType type;
-    union {
-        UserCameraMoveEvent userCameraMoveData;
-        UserCameraRotateEvent userCameraRotateData;
-        SetAnimationEvent setAnimationData;
-    };
+    float timestamp; // The timestamp of when the event happened, for headless mode. In microseconds
+    std::variant<
+        UserCameraMoveEvent,
+        UserCameraRotateEvent,
+        SetAnimationEvent,
+        InternalSaveEvent,
+        InternalMarkEvent
+    > data;
 };
 
 // RenderInstance provides a Vulkan instance/device to render to, a way to acquire/present render targets, and a way to handle windowing events
@@ -132,6 +146,9 @@ private:
 
     // Fake window state
     // Would have liked to use CombinedImage for these, but it requires a shared_ptr to RenderInstance. So manual management it is.
+    std::vector<RenderInstanceEvent> headlessEvents;
+    uint32_t currentHeadlessEvent;
+
     std::vector<VkImage> headlessRenderImages;
     std::vector<VkDeviceMemory> headlessRenderImagesMemory;
 

@@ -1,3 +1,4 @@
+#include <charconv>
 #include <iostream>
 #include <fstream>
 #include <cstring>
@@ -10,6 +11,70 @@
 const int MAX_HEADLESS_RENDER_IMAGES = 3;
 
 void RenderInstance::initHeadless() {
+    // Parse the event file into the event list
+    std::ifstream eventsFile(options::getHeadlessEventsPath());
+    std::string line;
+    while (std::getline(eventsFile, line)) {
+        RenderInstanceEvent event;
+
+        // Get the timestamp
+        std::string timestampStr = line.substr(0, line.find(" "));
+        line.erase(0, line.find(" ") + 1);
+
+        auto charconvResult = std::from_chars(timestampStr.data(), timestampStr.data() + timestampStr.size(), event.timestamp);
+        if (charconvResult.ec == std::errc::invalid_argument || charconvResult.ec == std::errc::result_out_of_range) {
+            PANIC("Headless events parsing error: timestamp invalid");
+        }
+
+        // Get the command type
+        std::string eventType = line.substr(0, line.find(" "));
+        line.erase(0, line.find(" ") + 1);
+
+        // Parse the rest of the command
+        if (eventType == "AVAILABLE") {
+            event.type = RI_EV_INTERNAL_AVAILABLE;
+        }
+        else if (eventType == "SAVE") {
+            event.type = RI_EV_INTERNAL_SAVE;
+            event.data = InternalSaveEvent {
+                .outputPath = line,
+            };
+        }
+        else if (eventType == "MARK") {
+            event.type = RI_EV_INTERNAL_MARK;
+            event.data = InternalMarkEvent {
+                .message = line,
+            };
+        }
+        else if (eventType == "PLAY") {
+            // Split the arguments into time and rate
+            std::string timeStr = line.substr(0, line.find(" "));
+            line.erase(0, line.find(" ") + 1);
+
+            // Parse
+            float animTime;
+            float animRate;
+            auto timeResult = std::from_chars(timeStr.data(), timeStr.data() + timeStr.size(), animTime);
+            auto rateResult = std::from_chars(line.data(), line.data() + line.size(), animRate);
+            if (timeResult.ec == std::errc::invalid_argument || timeResult.ec == std::errc::result_out_of_range ||
+                rateResult.ec == std::errc::invalid_argument || rateResult.ec == std::errc::result_out_of_range) {
+                PANIC("Headless events parsing error: invalid arguments to PLAY");
+            }
+
+            event.type = RI_EV_SET_ANIMATION;
+            event.data = SetAnimationEvent {
+                .time = animTime,
+                .rate = animRate,
+            };
+        }
+        else {
+            PANIC("Headless events parsing error: invalid event type");
+        }
+
+        headlessEvents.push_back(event);
+    }
+
+    // Create our render images
     renderImageFormat = VK_FORMAT_R8G8B8A8_SRGB;
     renderImageExtent = VkExtent2D {
         .width = options::getWindowWidth(),
@@ -50,54 +115,83 @@ void RenderInstance::cleanupHeadless() {
 }
 
 bool RenderInstance::shouldCloseHeadless() {
-    static int x = 0;
-    x += 1;
-    return x > 10000;
+    return currentHeadlessEvent == headlessEvents.size();
 }
 
 float RenderInstance::processEventsHeadless() {
-    static int x = 0;
-    x += 1;
-    if (x % 100 == 0) {
-        // Wait for the most recently released frame to finish rendering
-        int lastReleasedImage = lastUsedImage - 1;
-        if (lastReleasedImage == -1) {
-            lastReleasedImage = MAX_HEADLESS_RENDER_IMAGES - 1;
+    // Clear the event queue before processing any events
+    eventQueue.clear();
+
+    float startTime;
+    if (currentHeadlessEvent == 0) {
+        startTime = 0.0f;
+    }
+    else {
+        startTime = headlessEvents[currentHeadlessEvent - 1].timestamp;
+    }
+    float endTime = startTime;
+
+    while (currentHeadlessEvent < headlessEvents.size()) {
+        RenderInstanceEvent const& event = headlessEvents[currentHeadlessEvent];
+        // Advance to the next event, in case we hit AVAILABLE and break out
+        endTime = event.timestamp;
+        currentHeadlessEvent += 1;
+
+        if (event.type == RI_EV_INTERNAL_AVAILABLE) {
+            break;
         }
-        VkSemaphoreWaitInfo waitInfo {
-            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-            .semaphoreCount = 1,
-            .pSemaphores = &renderingSemaphores[lastReleasedImage],
-            .pValues = &renderingSemaphoreValues[lastReleasedImage],
-        };
-        vkWaitSemaphores(device, &waitInfo, UINT64_MAX);
+        else if (event.type == RI_EV_INTERNAL_SAVE) {
+            // Save last rendered image to output file
+            InternalSaveEvent const& data = get<InternalSaveEvent>(event.data);
 
-        // Copy the image to the copy buffer
-        transitionImageLayout(*this, headlessRenderImages[lastReleasedImage], renderImageFormat, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        copyImageToBuffer(*this, headlessRenderImages[lastReleasedImage], imageCopyBuffer, renderImageExtent.width, renderImageExtent.height);
-        transitionImageLayout(*this, headlessRenderImages[lastReleasedImage], renderImageFormat, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-        // Output the copied image to file using the ppm file format
-        // We first copy to a secondary buffer because writing to the file itself comparitively very long
-        // That way, we can throw it into a thread and have it work in the background
-        std::unique_ptr<uint8_t[]> imageCopy(new uint8_t[renderImageExtent.width * renderImageExtent.height * 4]);
-        memcpy(imageCopy.get(), imageCopyBufferMap, renderImageExtent.width * renderImageExtent.height * 4);
-
-        std::thread writer([renderImageExtent = renderImageExtent, imageCopy = move(imageCopy)] {
-            std::ofstream outputImage(string_format("output%d.ppm", x/100), std::ios::out | std::ios::binary);
-
-            std::string header = string_format("P6 %d %d 255\n", renderImageExtent.width, renderImageExtent.height);
-            outputImage.write(header.c_str(), header.size());
-
-            for (uint32_t p = 0; p < renderImageExtent.width * renderImageExtent.height; p++) {
-                // Need to copy pixel by pixel since PPM doesn't support alpha
-                outputImage.write(reinterpret_cast<const char*>(imageCopy.get()) + p * 4, 3);
+            // Wait for the most recently released frame to finish rendering
+            int lastReleasedImage = lastUsedImage - 1;
+            if (lastReleasedImage == -1) {
+                lastReleasedImage = MAX_HEADLESS_RENDER_IMAGES - 1;
             }
-        });
-        imageWriters.push_back(move(writer));
+            VkSemaphoreWaitInfo waitInfo {
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+                .semaphoreCount = 1,
+                .pSemaphores = &renderingSemaphores[lastReleasedImage],
+                .pValues = &renderingSemaphoreValues[lastReleasedImage],
+            };
+            vkWaitSemaphores(device, &waitInfo, UINT64_MAX);
+
+            // Copy the image to the copy buffer
+            transitionImageLayout(*this, headlessRenderImages[lastReleasedImage], renderImageFormat, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            copyImageToBuffer(*this, headlessRenderImages[lastReleasedImage], imageCopyBuffer, renderImageExtent.width, renderImageExtent.height);
+            transitionImageLayout(*this, headlessRenderImages[lastReleasedImage], renderImageFormat, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+            // Output the copied image to file using the ppm file format
+            // We first copy to a secondary buffer because writing to the file itself comparitively very long
+            // That way, we can throw it into a thread and have it work in the background
+            std::unique_ptr<uint8_t[]> imageCopy(new uint8_t[renderImageExtent.width * renderImageExtent.height * 4]);
+            memcpy(imageCopy.get(), imageCopyBufferMap, renderImageExtent.width * renderImageExtent.height * 4);
+
+            std::thread writer([renderImageExtent = renderImageExtent, imageCopy = move(imageCopy), outputPath = data.outputPath] {
+                std::ofstream outputImage(outputPath, std::ios::out | std::ios::binary);
+
+                std::string header = string_format("P6 %d %d 255\n", renderImageExtent.width, renderImageExtent.height);
+                outputImage.write(header.c_str(), header.size());
+
+                for (uint32_t p = 0; p < renderImageExtent.width * renderImageExtent.height; p++) {
+                    // Need to copy pixel by pixel since PPM doesn't support alpha
+                    outputImage.write(reinterpret_cast<const char*>(imageCopy.get()) + p * 4, 3);
+                }
+            });
+            imageWriters.push_back(move(writer));
+        }
+        else if (event.type == RI_EV_INTERNAL_MARK) {
+            InternalMarkEvent const& data = get<InternalMarkEvent>(event.data);
+            std::cout << "MARK " << data.message << std::endl;
+        }
+        else {
+            eventQueue.push_back(event);
+        }
     }
 
-    return 1.0f / 20.0f;
+    // Divide final time delta by 1000000 since endTime and startTime are in microseconds
+    return (endTime - startTime) / 1000000.0f;
 }
 
 RenderInstanceImageStatus RenderInstance::acquireImageHeadless(VkSemaphore availableSemaphore, uint64_t semaphoreCurVal, uint32_t& dstImageIndex) {

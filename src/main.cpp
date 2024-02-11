@@ -632,16 +632,23 @@ private:
 
         while (!renderInstance->shouldClose()) {
             std::chrono::system_clock::time_point startTime = std::chrono::high_resolution_clock::now();
+            float processTime = renderInstance->processEvents();
+            std::cout << processTime*1000 << std::endl;
+
+            // Update the animation time
+            animationTime += processTime * animationRate;
+            if (animationTime > scene.maxAnimTime) {
+                animationTime -= scene.maxAnimTime - scene.minAnimTime;
+            }
 
             // Process events
-            float processTime = renderInstance->processEvents();
             for (RenderInstanceEvent event : renderInstance->eventQueue) {
                 if (event.type == RI_EV_SWAP_FIXED_CAMERA) {
-                    if (scene.useUserCamera) {
+                    if (scene.useUserCamera && scene.cameras.size() != 0) {
                         scene.useUserCamera = false;
                         scene.useDebugCamera = false;
                     }
-                    else {
+                    else if (scene.cameras.size() != 0) {
                         scene.selectedCamera = (scene.selectedCamera + 1) % scene.cameras.size();
                     }
                 }
@@ -654,18 +661,19 @@ private:
                     scene.useDebugCamera = true;
                 }
                 else if (event.type == RI_EV_USER_CAMERA_MOVE && scene.useUserCamera) {
-                    scene.moveUserCamera(event.userCameraMoveData, processTime);
+                    scene.moveUserCamera(get<UserCameraMoveEvent>(event.data), processTime);
                 }
                 else if (event.type == RI_EV_USER_CAMERA_ROTATE && scene.useUserCamera) {
-                    scene.rotateUserCamera(event.userCameraRotateData);
+                    scene.rotateUserCamera(get<UserCameraRotateEvent>(event.data));
                 }
                 else if (event.type == RI_EV_TOGGLE_ANIMATION) {
                     standardAnimationRateIndex = (standardAnimationRateIndex + 1) % standardAnimationRates.size();
                     animationRate = standardAnimationRates[standardAnimationRateIndex];
                 }
                 else if (event.type == RI_EV_SET_ANIMATION) {
-                    animationTime = event.setAnimationData.time;
-                    animationRate = event.setAnimationData.rate;
+                    SetAnimationEvent data = get<SetAnimationEvent>(event.data);
+                    animationTime = data.time;
+                    animationRate = data.rate;
                 }
             }
 
@@ -677,11 +685,6 @@ private:
             // Draw the frame
             drawFrame();
 
-            // Update animations
-            animationTime += processTime * animationRate;
-            if (animationTime > scene.maxAnimTime) {
-                animationTime -= scene.maxAnimTime - scene.minAnimTime;
-            }
 
             // Update frameTime
             std::chrono::system_clock::time_point endTime = std::chrono::high_resolution_clock::now();

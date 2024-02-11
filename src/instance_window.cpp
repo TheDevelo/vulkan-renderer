@@ -88,7 +88,7 @@ static void glfwMouseCursorCallback(GLFWwindow* window, double x, double y) {
         float zRadians = (prevYPos - y) * DPI;
         instance->eventQueue.emplace_back(RenderInstanceEvent {
             .type = RI_EV_USER_CAMERA_ROTATE,
-            .userCameraRotateData = UserCameraRotateEvent {
+            .data = UserCameraRotateEvent {
                 .xyRadians = xyRadians,
                 .zRadians = zRadians,
             }
@@ -125,26 +125,27 @@ float RenderInstance::processEventsReal() {
     glfwPollEvents();
 
     // Add any events for held actions
-    RenderInstanceEvent cameraMoveEvent {
-        .type = RI_EV_USER_CAMERA_MOVE,
-        .userCameraMoveData = UserCameraMoveEvent {
-            .forwardAmount = 0,
-            .sideAmount = 0,
-        },
+    UserCameraMoveEvent cameraMoveData {
+        .forwardAmount = 0,
+        .sideAmount = 0,
     };
     if (wHeld) {
-        cameraMoveEvent.userCameraMoveData.forwardAmount += 1;
+        cameraMoveData.forwardAmount += 1;
     }
     if (aHeld) {
-        cameraMoveEvent.userCameraMoveData.sideAmount += 1;
+        cameraMoveData.sideAmount += 1;
     }
     if (sHeld) {
-        cameraMoveEvent.userCameraMoveData.forwardAmount -= 1;
+        cameraMoveData.forwardAmount -= 1;
     }
     if (dHeld) {
-        cameraMoveEvent.userCameraMoveData.sideAmount -= 1;
+        cameraMoveData.sideAmount -= 1;
     }
-    if (cameraMoveEvent.userCameraMoveData.forwardAmount != 0 || cameraMoveEvent.userCameraMoveData.sideAmount != 0) {
+    RenderInstanceEvent cameraMoveEvent {
+        .type = RI_EV_USER_CAMERA_MOVE,
+        .data = cameraMoveData,
+    };
+    if (cameraMoveData.forwardAmount != 0 || cameraMoveData.sideAmount != 0) {
         eventQueue.emplace_back(cameraMoveEvent);
     }
 
