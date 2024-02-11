@@ -439,11 +439,11 @@ bool RenderInstance::shouldClose() {
     }
 }
 
-void RenderInstance::processEvents() {
+float RenderInstance::processEvents() {
     if (options::isHeadless()) {
-        processEventsHeadless();
+        return processEventsHeadless();
     }
     else {
-        processEventsReal();
+        return processEventsReal();
     }
 }

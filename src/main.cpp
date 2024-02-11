@@ -621,14 +621,20 @@ private:
     }
 
     void mainLoop() {
-        float frameTime = 0.0f; // I think starting at 0 is fine since I dont use the frameTime to divide anything
+        // frameTime is the real world time to send a frame through, animationTime is the total time used for animations, and processTime is the simulated time between frames
+        // frameTime and processTime will roughly match for real rendering, but will be very different for headless mode
+        float frameTime = 0.0f;
         float animationRate = 1.0f;
         float animationTime = scene.minAnimTime;
+
+        std::array<float, 6> standardAnimationRates = {{ 1.0f, 0.5f, 0.25f, 0.125f, 0.0625f, 0.0f }};
+        uint32_t standardAnimationRateIndex = 0;
+
         while (!renderInstance->shouldClose()) {
-            auto startTime = std::chrono::high_resolution_clock::now();
+            std::chrono::system_clock::time_point startTime = std::chrono::high_resolution_clock::now();
 
             // Process events
-            renderInstance->processEvents();
+            float processTime = renderInstance->processEvents();
             for (RenderInstanceEvent event : renderInstance->eventQueue) {
                 if (event.type == RI_EV_SWAP_FIXED_CAMERA) {
                     if (scene.useUserCamera) {
@@ -648,18 +654,14 @@ private:
                     scene.useDebugCamera = true;
                 }
                 else if (event.type == RI_EV_USER_CAMERA_MOVE && scene.useUserCamera) {
-                    scene.moveUserCamera(event.userCameraMoveData, frameTime);
+                    scene.moveUserCamera(event.userCameraMoveData, processTime);
                 }
                 else if (event.type == RI_EV_USER_CAMERA_ROTATE && scene.useUserCamera) {
                     scene.rotateUserCamera(event.userCameraRotateData);
                 }
                 else if (event.type == RI_EV_TOGGLE_ANIMATION) {
-                    if (animationRate == 0.0f) {
-                        animationRate = 1.0f;
-                    }
-                    else {
-                        animationRate = 0.0f;
-                    }
+                    standardAnimationRateIndex = (standardAnimationRateIndex + 1) % standardAnimationRates.size();
+                    animationRate = standardAnimationRates[standardAnimationRateIndex];
                 }
                 else if (event.type == RI_EV_SET_ANIMATION) {
                     animationTime = event.setAnimationData.time;
@@ -675,14 +677,15 @@ private:
             // Draw the frame
             drawFrame();
 
-            // Update frameTime for use in next frame
-            auto endTime = std::chrono::high_resolution_clock::now();
-            frameTime = std::chrono::duration<float, std::chrono::seconds::period>(endTime - startTime).count();
-
-            animationTime += frameTime * animationRate;
+            // Update animations
+            animationTime += processTime * animationRate;
             if (animationTime > scene.maxAnimTime) {
                 animationTime -= scene.maxAnimTime - scene.minAnimTime;
             }
+
+            // Update frameTime
+            std::chrono::system_clock::time_point endTime = std::chrono::high_resolution_clock::now();
+            frameTime = std::chrono::duration<float, std::chrono::seconds::period>(endTime - startTime).count();
 
             if (options::logFrameTimes()) {
                 std::cout << "REPORT frame-time " << frameTime * 1000.0f << "ms" << std::endl;

@@ -173,6 +173,8 @@ void Scene::rotateUserCamera(UserCameraRotateEvent rotateAmount) {
 }
 
 void Scene::updateAnimation(float time) {
+    constexpr float EPSILON = 0.00001;
+
     std::set<uint32_t> updatedNodes;
     for (Driver& driver : drivers) {
         // Get the keyframe values required
@@ -261,15 +263,28 @@ void Scene::updateAnimation(float time) {
                 float t = (time - driver.keyTimes[keyIndex - 1]) / (driver.keyTimes[keyIndex] - driver.keyTimes[keyIndex - 1]);
 
                 // Calculate the angle between the first and last values for use in slerp
-                float angle = std::acos(linear::dot(first, last) / (linear::length(first) * linear::length(last)));
-                float invSinAngle = 1.0f / std::sin(angle);
-                interpolatedValue = std::sin((1.0f - t) * angle) * invSinAngle * first + std::sin(t * angle) * invSinAngle * last;
+                float cosAngle = linear::dot(first, last) / (linear::length(first) * linear::length(last));
+                if (cosAngle < 0) {
+                    // If cosAngle is negative, then we need to flip cosAngle and first
+                    cosAngle = -cosAngle;
+                    first = -1.0f * first;
+                }
+
+                if (cosAngle > 1.0f - EPSILON) {
+                    // If angle is sufficiently close to 0, then just linearly interpolate
+                    interpolatedValue = first * (1 - t) + last * t;
+                }
+                else {
+                    float angle = std::acos(cosAngle);
+                    float invSinAngle = 1.0f / std::sin(angle);
+                    interpolatedValue = std::sin((1.0f - t) * angle) * invSinAngle * first + std::sin(t * angle) * invSinAngle * last;
+                }
             }
         }
 
         // Set the appropriate channel
         if (driver.targetNode >= nodes.size()) {
-            PANIC(string_format("driver %s references node %u out of range!", driver.name, driver.targetNode));
+            PANIC(string_format("driver %s references node %u out of range!", driver.name.c_str(), driver.targetNode));
         }
         Node& node = nodes[driver.targetNode];
         if (driver.channel == DRIVER_TRANSLATION) {

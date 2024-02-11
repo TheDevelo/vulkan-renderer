@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 
 #include "instance.hpp"
 #include "linear.hpp"
@@ -18,6 +19,9 @@ static bool dHeld = false;
 static bool mouseCaptured = false;
 static double prevXPos = 0.0f;
 static double prevYPos = 0.0f;
+
+// Used for calculating time between processEvents calls
+static std::chrono::system_clock::time_point prevTime;
 
 static void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     RenderInstance* instance = reinterpret_cast<RenderInstance*>(glfwGetWindowUserPointer(window));
@@ -105,13 +109,15 @@ void RenderInstance::initRealWindow() {
     glfwSetKeyCallback(window, glfwKeyCallback);
     glfwSetMouseButtonCallback(window, glfwMouseButtonCallback);
     glfwSetCursorPosCallback(window, glfwMouseCursorCallback);
+
+    prevTime = std::chrono::high_resolution_clock::now();
 }
 
 bool RenderInstance::shouldCloseReal() {
     return glfwWindowShouldClose(window);
 }
 
-void RenderInstance::processEventsReal() {
+float RenderInstance::processEventsReal() {
     // Empty out the event queue before we repopulate it
     eventQueue.clear();
 
@@ -141,6 +147,11 @@ void RenderInstance::processEventsReal() {
     if (cameraMoveEvent.userCameraMoveData.forwardAmount != 0 || cameraMoveEvent.userCameraMoveData.sideAmount != 0) {
         eventQueue.emplace_back(cameraMoveEvent);
     }
+
+    std::chrono::system_clock::time_point curTime = std::chrono::high_resolution_clock::now();
+    float processTime = std::chrono::duration<float, std::chrono::seconds::period>(curTime - prevTime).count();
+    prevTime = curTime;
+    return processTime;
 }
 
 // === Real surface/swapchain code

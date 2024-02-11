@@ -101,7 +101,7 @@ public:
 
     // Windowing events
     bool shouldClose();
-    void processEvents();
+    float processEvents(); // Return value is time since last call to processEvents
     std::vector<RenderInstanceEvent> eventQueue;
 
     inline QueueFamilyIndices getQueueFamilies() {
@@ -121,7 +121,7 @@ private:
     void cleanupRealSwapChain();
 
     bool shouldCloseReal();
-    void processEventsReal();
+    float processEventsReal();
     RenderInstanceImageStatus acquireImageReal(VkSemaphore availableSemaphore, uint32_t& dstImageIndex);
     RenderInstanceImageStatus presentImageReal(VkSemaphore renderFinishedSemaphore, uint32_t imageIndex);
 
@@ -150,7 +150,7 @@ private:
     void initHeadless();
     void cleanupHeadless();
     bool shouldCloseHeadless();
-    void processEventsHeadless();
+    float processEventsHeadless();
     RenderInstanceImageStatus acquireImageHeadless(VkSemaphore availableSemaphore, uint64_t semaphoreCurVal, uint32_t& dstImageIndex);
     RenderInstanceImageStatus presentImageHeadless(VkSemaphore renderFinishedSemaphore, uint64_t semaphoreCurVal, uint32_t imageIndex);
 

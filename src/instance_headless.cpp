@@ -55,7 +55,7 @@ bool RenderInstance::shouldCloseHeadless() {
     return x > 10000;
 }
 
-void RenderInstance::processEventsHeadless() {
+float RenderInstance::processEventsHeadless() {
     static int x = 0;
     x += 1;
     if (x % 100 == 0) {
@@ -96,6 +96,8 @@ void RenderInstance::processEventsHeadless() {
         });
         imageWriters.push_back(move(writer));
     }
+
+    return 1.0f / 20.0f;
 }
 
 RenderInstanceImageStatus RenderInstance::acquireImageHeadless(VkSemaphore availableSemaphore, uint64_t semaphoreCurVal, uint32_t& dstImageIndex) {
