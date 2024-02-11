@@ -362,6 +362,11 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         useUserCamera = true;
     }
     useDebugCamera = false;
+    userCamera = UserCamera {
+        .theta = 0.0f,
+        .phi = 0.0f,
+        .position = Vec3<float>(0.0f),
+    };
 }
 
 // Helper to construct a vertex buffer from a CPU buffer

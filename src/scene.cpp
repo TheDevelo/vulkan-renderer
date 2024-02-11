@@ -8,6 +8,7 @@
 #include "buffer.hpp"
 #include "instance.hpp"
 #include "linear.hpp"
+#include "options.hpp"
 #include "scene.hpp"
 #include "util.hpp"
 
@@ -54,6 +55,10 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
     }
 
     Mesh& mesh = meshes[meshId];
+    // Cull the mesh
+    if (options::getCullingMode() != options::CULLING_OFF && !bboxInViewFrustum(worldTransform, mesh.bboxMin, mesh.bboxMax)) {
+        return;
+    }
 
     if (mesh.vertexBufferIndex >= buffers.size()) {
         PANIC(string_format("mesh %s includes vertex buffer %u out of range!", mesh.name.c_str(), mesh.vertexBufferIndex));
@@ -68,10 +73,19 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
 }
 
 void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
+    float aspectRatio;
+    float vFov;
+    float nearZ;
+    std::optional<float> farZ;
+
     if (useUserCamera) {
         // User camera
+        aspectRatio = renderInstance.renderImageExtent.width / (float) renderInstance.renderImageExtent.height;
+        vFov = DEG2RADF(60.0f);
+        nearZ = 0.1f;
+
         // Calculate the projection matrix
-        viewProj.proj = linear::infinitePerspective(DEG2RADF(60.0f), renderInstance.renderImageExtent.width / (float) renderInstance.renderImageExtent.height, 0.1f);
+        viewProj.proj = linear::infinitePerspective(vFov, aspectRatio, nearZ);
 
         // Calculate the view matrix
         float sinPhi = std::sin(userCamera.phi);
@@ -83,12 +97,16 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
     }
     else {
         // Scene camera
-        // Calculate the projection matrix
         if (selectedCamera >= cameras.size()) {
             PANIC(string_format("selected camera %u is out of range!", selectedCamera));
         }
         Camera& camera = cameras[selectedCamera];
+        aspectRatio = camera.aspectRatio;
+        vFov = camera.vFov;
+        nearZ = camera.nearZ;
+        farZ = camera.farZ;
 
+        // Calculate the projection matrix
         if (camera.farZ.has_value()) {
             viewProj.proj = linear::perspective(camera.vFov, camera.aspectRatio, camera.nearZ, camera.farZ.value());
         }
@@ -117,9 +135,18 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
         }
     }
 
-    // Copy our updated viewProj to the cullingViewProj if we don't have debug camera on
+    // Update our culling camera if we don't have debug camera on
     if (!useDebugCamera) {
-        cullingViewProj = viewProj;
+        // Half near height = nearZ * tan(vFov/2), and Half near width = Half near width * aspectRatio
+        float halfNearHeight = nearZ * std::tan(vFov / 2.0f);
+        float halfNearWidth = halfNearHeight * aspectRatio;
+        cullingCamera = CullingCamera {
+            .viewMatrix = viewProj.view,
+            .halfNearWidth = halfNearWidth,
+            .halfNearHeight = halfNearHeight,
+            .nearZ = nearZ,
+            .farZ = farZ,
+        };
     }
 }
 
@@ -304,4 +331,55 @@ void Scene::updateAnimation(float time) {
     for (uint32_t nodeId : updatedNodes) {
         nodes[nodeId].calculateTransforms();
     }
+}
+
+// Helper for bounding box-plane tests
+// Idea: We can check if a point x is in-front/behind a plane given by point p and normal n by checking if dot(x - p, n) > 0.
+// If all 8 corners of a bounding box lies behind a plane of the frustum, then the bounding box must lie outside of the frustum.
+// We can actually simplify checking all 8 corners into 4 checks by using one corner c and 3 extents of the bounding box x,y,z.
+// A corner of the bounding box will be C = c + (0/1)x + (0/1)y + (0/1)z. Distributing the dot product, we get dot(C - p, n) = dot(c - p, n) + (0/1)dot(x, n) + (0/1)dot(y, n) + (0/1)dot(z, n)
+// Since we want to check dot(C - p, n) < 0 for all C, we only need to check the max dot product over all corners. To get the max, we can take the max of each component, and then sum.
+// This gives our final bounding box-plane check of dot(c - p, n) + max(dot(x, n), 0) + max(dot(y, n), 0) + max(dot(z, n), 0) < 0. If true, BBox is fully behind the plane
+bool bboxBehindPlane(Vec3<float> const& planePos, Vec3<float> const& planeNormal, Vec3<float> const& bboxCorner,
+                     Vec3<float> const& bboxExtentX, Vec3<float> const& bboxExtentY, Vec3<float> const& bboxExtentZ) {
+    constexpr float EPSILON = 0.00001;
+    float cornerDot = linear::dot(bboxCorner - planePos, planeNormal);
+    float extentXDot = std::max(linear::dot(bboxExtentX, planeNormal), 0.0f);
+    float extentYDot = std::max(linear::dot(bboxExtentY, planeNormal), 0.0f);
+    float extentZDot = std::max(linear::dot(bboxExtentZ, planeNormal), 0.0f);
+
+    // Check if the corner dot is below -EPSILON instead of 0 to not exclude border cases
+    return cornerDot + extentXDot + extentYDot + extentZDot < -EPSILON;
+}
+
+bool Scene::bboxInViewFrustum(Mat4<float> const& worldTransform, Vec3<float> const& bboxMin, Vec3<float> const& bboxMax) {
+    // Transform the bounding box into view space by transforming one corner of the bounding box, and the XYZ extents to the opposite corner
+    Mat4<float> localToView = linear::mmul(cullingCamera.viewMatrix, worldTransform);
+    Vec3<float> bboxCorner = linear::mmul(localToView, Vec4<float>(bboxMin, 1.0f)).xyz;
+    Vec3<float> bboxExtentX = linear::mmul(localToView, Vec4<float>(bboxMax.x - bboxMin.x, 0.0f, 0.0f, 0.0f)).xyz;
+    Vec3<float> bboxExtentY = linear::mmul(localToView, Vec4<float>(0.0f, bboxMax.y - bboxMin.y, 0.0f, 0.0f)).xyz;
+    Vec3<float> bboxExtentZ = linear::mmul(localToView, Vec4<float>(0.0f, 0.0f, bboxMax.z - bboxMin.z, 0.0f)).xyz;
+
+    // Compute the normals/positions for our frustum. Note that our bboxBehindPlane check doesn't depend on the normal being unit, as we are only checking sign.
+    Vec3<float> topNormal = Vec3<float>(0.0f, -cullingCamera.nearZ, -cullingCamera.halfNearHeight);
+    Vec3<float> bottomNormal = Vec3<float>(0.0f, cullingCamera.nearZ, -cullingCamera.halfNearHeight);
+    Vec3<float> leftNormal = Vec3<float>(cullingCamera.nearZ, 0.0f, -cullingCamera.halfNearWidth);
+    Vec3<float> rightNormal = Vec3<float>(-cullingCamera.nearZ, 0.0f, -cullingCamera.halfNearWidth);
+    Vec3<float> frontNormal = Vec3<float>(0.0f, 0.0f, -1.0f);
+    Vec3<float> backNormal = Vec3<float>(0.0f, 0.0f, 1.0f);
+
+    // Check the bounding box against each normal
+    if (bboxBehindPlane(Vec3<float>(0.0f), topNormal,    bboxCorner, bboxExtentX, bboxExtentY, bboxExtentZ) ||
+        bboxBehindPlane(Vec3<float>(0.0f), bottomNormal, bboxCorner, bboxExtentX, bboxExtentY, bboxExtentZ) ||
+        bboxBehindPlane(Vec3<float>(0.0f), leftNormal,   bboxCorner, bboxExtentX, bboxExtentY, bboxExtentZ) ||
+        bboxBehindPlane(Vec3<float>(0.0f), rightNormal,  bboxCorner, bboxExtentX, bboxExtentY, bboxExtentZ) ||
+        bboxBehindPlane(Vec3<float>(0.0f, 0.0f, -cullingCamera.nearZ), frontNormal, bboxCorner, bboxExtentX, bboxExtentY, bboxExtentZ)) {
+        return false;
+    }
+    // Only check back face if we have one
+    if (cullingCamera.farZ.has_value() && bboxBehindPlane(Vec3<float>(0.0f, 0.0f, -cullingCamera.farZ.value()), backNormal, bboxCorner, bboxExtentX, bboxExtentY, bboxExtentZ)) {
+        return false;
+    }
+
+    return true;
 }

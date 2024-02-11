@@ -322,7 +322,7 @@ private:
             .pViewportState = &viewportStateInfo,
             .pRasterizationState = &rasterizerStateInfo,
             .pMultisampleState = &multisamplingInfo,
-            .pDepthStencilState = &depthStencilInfo, // Null for now, will eventually fill in once we add our depth buffer
+            .pDepthStencilState = &depthStencilInfo,
             .pColorBlendState = &colorBlendInfo,
             .pDynamicState = &dynamicStateInfo,
             .layout = pipelineLayout,

@@ -136,6 +136,15 @@ struct UserCamera {
     Vec3<float> position;
 };
 
+// Camera information required to frustum cull a bounding box
+struct CullingCamera {
+    Mat4<float> viewMatrix;
+    float halfNearWidth;
+    float halfNearHeight;
+    float nearZ;
+    std::optional<float> farZ;
+};
+
 class Scene {
 public:
     Scene() = default;
@@ -163,7 +172,9 @@ private:
     void renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, Mat4<float> const& worldTransform);
 
     uint32_t vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderInstance, const void* inBuffer, uint32_t size);
+
     std::optional<Mat4<float>> findCameraWTLTransform(uint32_t nodeId, uint32_t cameraId);
+    bool bboxInViewFrustum(Mat4<float> const& worldTransform, Vec3<float> const& bboxMin, Vec3<float> const& bboxMax);
 
     std::vector<uint32_t> sceneRoots;
     std::vector<Node> nodes;
@@ -171,7 +182,7 @@ private:
     std::vector<Driver> drivers;
     std::vector<CombinedBuffer> buffers;
 
-    // We store a copy of our viewProj matrices for culling as well, which lets us separate the view and culling camera for debug mode
-    ViewProjMatrices cullingViewProj;
+    // We store a separate struct for the culling camera, which simplifies culling logic & makes debug mode possible
+    CullingCamera cullingCamera;
     UserCamera userCamera;
 };
