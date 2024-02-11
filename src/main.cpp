@@ -24,48 +24,6 @@
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
-// Vertex struct for Vulkan
-struct Vertex {
-    Vec3<float> pos;
-    Vec3<float> normal;
-    Vec4<uint8_t> color;
-
-    static VkVertexInputBindingDescription getBindingDescription() {
-        VkVertexInputBindingDescription bindingDescription {
-            .binding = 0,
-            .stride = sizeof(Vertex),
-            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-        };
-
-        return bindingDescription;
-    }
-
-    static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
-        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions {{
-            {
-                .location = 0,
-                .binding = 0,
-                .format = VK_FORMAT_R32G32B32_SFLOAT,
-                .offset = offsetof(Vertex, pos),
-            },
-            {
-                .location = 1,
-                .binding = 0,
-                .format = VK_FORMAT_R32G32B32_SFLOAT,
-                .offset = offsetof(Vertex, normal),
-            },
-            {
-                .location = 2,
-                .binding = 0,
-                .format = VK_FORMAT_R8G8B8A8_UNORM,
-                .offset = offsetof(Vertex, color),
-            }
-        }};
-
-        return attributeDescriptions;
-    }
-};
-
 // Shader arrays
 const uint32_t vertShaderArray[] =
 #include "shaders/shader.vert.inl"
@@ -633,7 +591,6 @@ private:
         while (!renderInstance->shouldClose()) {
             std::chrono::system_clock::time_point startTime = std::chrono::high_resolution_clock::now();
             float processTime = renderInstance->processEvents();
-            std::cout << processTime*1000 << std::endl;
 
             // Update the animation time
             animationTime += processTime * animationRate;

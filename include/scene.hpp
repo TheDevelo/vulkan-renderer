@@ -20,6 +20,48 @@ struct SceneRenderInfo {
     VkPipelineLayout pipelineLayout;
 };
 
+// Vertex struct used for our meshes
+struct Vertex {
+    Vec3<float> pos;
+    Vec3<float> normal;
+    Vec4<uint8_t> color;
+
+    static VkVertexInputBindingDescription getBindingDescription() {
+        VkVertexInputBindingDescription bindingDescription {
+            .binding = 0,
+            .stride = sizeof(Vertex),
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+        };
+
+        return bindingDescription;
+    }
+
+    static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
+        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions {{
+            {
+                .location = 0,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                .offset = offsetof(Vertex, pos),
+            },
+            {
+                .location = 1,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32B32_SFLOAT,
+                .offset = offsetof(Vertex, normal),
+            },
+            {
+                .location = 2,
+                .binding = 0,
+                .format = VK_FORMAT_R8G8B8A8_UNORM,
+                .offset = offsetof(Vertex, color),
+            }
+        }};
+
+        return attributeDescriptions;
+    }
+};
+
 // Scene class & container structs
 struct Node {
     std::string name;
@@ -48,6 +90,10 @@ struct Mesh {
     uint32_t vertexCount;
     uint32_t vertexBufferIndex;
     uint32_t vertexBufferOffset;
+
+    // Bounding box data
+    Vec3<float> bboxMin;
+    Vec3<float> bboxMax;
 };
 
 struct Camera {

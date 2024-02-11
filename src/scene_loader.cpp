@@ -1,6 +1,7 @@
 #include <vulkan/vulkan.h>
 
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <cstring>
 
@@ -9,6 +10,17 @@
 #include "options.hpp"
 #include "scene.hpp"
 #include "util.hpp"
+
+// Helper for computing the bounding box of a mesh
+void addToBBox(Vec3<float> const& position, Vec3<float>& bboxMin, Vec3<float>& bboxMax) {
+    bboxMin.x = std::min(position.x, bboxMin.x);
+    bboxMin.y = std::min(position.y, bboxMin.y);
+    bboxMin.z = std::min(position.z, bboxMin.z);
+
+    bboxMax.x = std::max(position.x, bboxMax.x);
+    bboxMax.y = std::max(position.y, bboxMax.y);
+    bboxMax.z = std::max(position.z, bboxMax.z);
+};
 
 // Constructor for scene directly from a JSON s72 file
 Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const& filename) {
@@ -144,7 +156,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     // Iterate through all the meshes, and accumulate all the vertex data into one big buffer
     // TODO: properly handle topology, index buffers, and attribute sets aside from the assumed given one
     // First, loop through the mesh objects just so we can reserver a big enough buffer
-    uint32_t totalBufferSize = 0;
+    uint32_t totalBufferCount = 0;
     for (auto idPair : meshIdMap) {
         uint32_t s72Id = idPair.first;
         json::object const& meshObj = sceneArr[s72Id].as_obj();
@@ -155,12 +167,12 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
         // TODO: account for different attribute sets
         // Each vertex has a size of 28, so size is vertexCount * 28
-        totalBufferSize += static_cast<uint32_t>(meshObj.at("count").as_num()) * 28;
+        totalBufferCount += static_cast<uint32_t>(meshObj.at("count").as_num());
     }
 
     // Now, create the mesh objects and copy into the CPU buffer
-    uint32_t curBufferSize = 0;
-    std::unique_ptr<char[]> buffer(new char[totalBufferSize]);
+    uint32_t curBufferCount = 0;
+    std::unique_ptr<Vertex[]> buffer(new Vertex[totalBufferCount]);
     for (auto idPair : meshIdMap) {
         uint32_t s72Id = idPair.first;
         json::object const& meshObj = sceneArr[s72Id].as_obj();
@@ -174,25 +186,32 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             .name = meshObj.at("name").as_str(),
             .vertexCount = static_cast<uint32_t>(meshObj.at("count").as_num()),
             .vertexBufferIndex = 0,
-            .vertexBufferOffset = curBufferSize,
-        };
+            .vertexBufferOffset = curBufferCount * static_cast<uint32_t>(sizeof(Vertex)),
 
-        meshes.push_back(mesh);
+            .bboxMin = Vec3<float>(std::numeric_limits<float>::max()),
+            .bboxMax = Vec3<float>(std::numeric_limits<float>::min()),
+        };
 
         // Load the file and copy into the total buffer
         // TODO: actually handle the attributes
         json::object const& posObj = attribObj.at("POSITION").as_obj();
         uint32_t fileOffset = posObj.at("offset").as_num();
-        uint32_t fileSize = static_cast<uint32_t>(meshObj.at("count").as_num()) * 28;
+        uint32_t fileSize = mesh.vertexCount * sizeof(Vertex);
         std::filesystem::path filePath = directory / posObj.at("src").as_str();
         std::vector<char> file = readFile(filePath.string());
-        memcpy(&buffer[curBufferSize], file.data() + fileOffset, fileSize);
+        memcpy(&buffer[curBufferCount], file.data() + fileOffset, fileSize);
 
-        curBufferSize += fileSize;
+        // Calculate the bounding box for our mesh
+        for (uint32_t i = curBufferCount; i < curBufferCount + mesh.vertexCount; i++) {
+            addToBBox(buffer[i].pos, mesh.bboxMin, mesh.bboxMax);
+        }
+
+        meshes.push_back(mesh);
+        curBufferCount += mesh.vertexCount;
     }
 
     // Create the vertex buffer from our accumulated buffer
-    vertexBufferFromBuffer(renderInstance, buffer.get(), totalBufferSize);
+    vertexBufferFromBuffer(renderInstance, buffer.get(), totalBufferCount * sizeof(Vertex));
 
     // Iterate through all the cameras and construct their Camera representation
     for (auto idPair : cameraIdMap) {

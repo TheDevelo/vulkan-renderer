@@ -14,6 +14,7 @@ static uint32_t windowWidth = 1280;
 static uint32_t windowHeight = 960;
 static bool logFrameTimesBool = false;
 static std::optional<std::string> headlessEventsPath;
+static options::CullingMode cullingMode = options::CULLING_FRUSTUM;
 
 namespace options {
     void parse(int argc, char** argv) {
@@ -82,6 +83,22 @@ namespace options {
 
                 headlessEventsPath = args[currentIndex];
             }
+            else if (currentArg == "--culling") {
+                currentIndex += 1;
+                if (currentIndex >= argc) {
+                    PANIC("missing argument to --culling");
+                }
+
+                if (args[currentIndex] == "none") {
+                    cullingMode = CULLING_OFF;
+                }
+                else if (args[currentIndex] == "frustum") {
+                    cullingMode = CULLING_FRUSTUM;
+                }
+                else {
+                    PANIC("invalid culling mode provided to --culling");
+                }
+            }
             else {
                 PANIC("invalid command line argument: " + std::string(currentArg));
             }
@@ -136,5 +153,9 @@ namespace options {
 
     std::string getHeadlessEventsPath() {
         return headlessEventsPath.value();
+    }
+
+    CullingMode getCullingMode() {
+        return cullingMode;
     }
 }
