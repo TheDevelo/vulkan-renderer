@@ -23,6 +23,7 @@ namespace options {
 
         // Variables to keep track of required arguments
         bool setScenePath = false;
+        bool setDrawingSize = false;
 
         while (currentIndex < argc) {
             std::string_view currentArg = args[currentIndex];
@@ -71,6 +72,7 @@ namespace options {
                     yResult.ec == std::errc::invalid_argument || yResult.ec == std::errc::result_out_of_range) {
                     PANIC("invalid argument to --drawing-size");
                 }
+                setDrawingSize = true;
             }
             else if (currentArg == "--log-frame-times") {
                 logFrameTimesBool = true;
@@ -114,6 +116,9 @@ namespace options {
         if (!listDevicesBool) {
             if (!setScenePath) {
                 PANIC("missing --scene argument");
+            }
+            if (headlessEventsPath.has_value() && !setDrawingSize) {
+                PANIC("need to specify --drawing-size when using --headless");
             }
         }
     }
