@@ -14,7 +14,7 @@ static uint32_t windowWidth = 1280;
 static uint32_t windowHeight = 960;
 static bool logFrameTimesBool = false;
 static std::optional<std::string> headlessEventsPath;
-static CullingMode cullingMode = CULLING_BVH;
+static CullingMode cullingMode = CullingMode::BVH;
 
 namespace options {
     void parse(int argc, char** argv) {
@@ -57,10 +57,10 @@ namespace options {
             else if (currentArg == "--enable-validation") {
                 enableValidation = true;
             }
-            else if (currentArg == "--window-size") {
+            else if (currentArg == "--drawing-size") {
                 currentIndex += 2;
                 if (currentIndex >= argc) {
-                    PANIC("missing argument to --window-size");
+                    PANIC("missing argument to --drawing-size");
                 }
 
                 std::string_view xStr = args[currentIndex - 1];
@@ -69,7 +69,7 @@ namespace options {
                 auto yResult = std::from_chars(yStr.data(), yStr.data() + yStr.size(), windowHeight);
                 if (xResult.ec == std::errc::invalid_argument || xResult.ec == std::errc::result_out_of_range ||
                     yResult.ec == std::errc::invalid_argument || yResult.ec == std::errc::result_out_of_range) {
-                    PANIC("invalid argument to --window-size");
+                    PANIC("invalid argument to --drawing-size");
                 }
             }
             else if (currentArg == "--log-frame-times") {
@@ -90,13 +90,13 @@ namespace options {
                 }
 
                 if (args[currentIndex] == "none") {
-                    cullingMode = CULLING_OFF;
+                    cullingMode = CullingMode::OFF;
                 }
                 else if (args[currentIndex] == "frustum") {
-                    cullingMode = CULLING_FRUSTUM;
+                    cullingMode = CullingMode::FRUSTUM;
                 }
                 else if (args[currentIndex] == "bvh") {
-                    cullingMode = CULLING_BVH;
+                    cullingMode = CullingMode::BVH;
                 }
                 else {
                     PANIC("invalid culling mode provided to --culling");

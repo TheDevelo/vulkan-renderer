@@ -368,18 +368,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     if (options::getDefaultCamera().has_value()) {
         // Start with the selected camera as the one with the specified name
         std::string cameraName = options::getDefaultCamera().value();
-        bool foundCamera = false;
-        for (uint32_t i = 0; i < cameras.size(); i++) {
-            if (cameras[i].name == cameraName) {
-                selectedCamera = i;
-                foundCamera = true;
-                break;
-            }
-        }
-
-        if (!foundCamera) {
-            PANIC("failed to find camera specified by --camera");
-        }
+        switchCameraByName(cameraName);
         useUserCamera = false;
     }
     else {
@@ -399,6 +388,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     for (uint32_t rootNode : sceneRoots) {
         computeNodeBBox(rootNode, dynamicNodes, visitedNodes);
     }
+
     cullingMode = options::getDefaultCullingMode();
 }
 
@@ -428,9 +418,8 @@ uint32_t Scene::vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderIn
     return buffers.size() - 1;
 }
 
-
-
 // Helper to recursively compute the bounding box of a node with dynamic programming
+// Return value is whether you are a static node: dynamic nodes return false
 bool Scene::computeNodeBBox(uint32_t nodeId, std::set<uint32_t>& dynamicNodes, std::set<uint32_t>& visitedNodes) {
     // Return if we have already visited the node before
     if (visitedNodes.contains(nodeId)) {
@@ -477,10 +466,25 @@ bool Scene::computeNodeBBox(uint32_t nodeId, std::set<uint32_t>& dynamicNodes, s
     }
 
     visitedNodes.insert(nodeId);
-    return true;
+    return !dynamic;
 }
 
 void Node::calculateTransforms() {
     transform = linear::localToParent(translation, rotation, scale);
     invTransform = linear::parentToLocal(translation, rotation, scale);
+}
+
+void Scene::switchCameraByName(std::string name) {
+    bool foundCamera = false;
+    for (uint32_t i = 0; i < cameras.size(); i++) {
+        if (cameras[i].name == name) {
+            selectedCamera = i;
+            foundCamera = true;
+            break;
+        }
+    }
+
+    if (!foundCamera) {
+        PANIC(string_format("failed to find camera %s", name.c_str()));
+    }
 }

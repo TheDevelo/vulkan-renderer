@@ -29,7 +29,7 @@ void Scene::renderNode(SceneRenderInfo const& sceneRenderInfo, uint32_t nodeId, 
     Node& node = nodes[nodeId];
 
     // Cull the node
-    if (cullingMode == CULLING_BVH && node.bbox.has_value() && !bboxInViewFrustum(parentToWorldTransform, node.bbox.value())) {
+    if (cullingMode == CullingMode::BVH && node.bbox.has_value() && !bboxInViewFrustum(parentToWorldTransform, node.bbox.value())) {
         return;
     }
 
@@ -61,7 +61,7 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
     Mesh& mesh = meshes[meshId];
 
     // Cull the mesh
-    if (cullingMode != CULLING_OFF && !bboxInViewFrustum(worldTransform, mesh.bbox)) {
+    if (cullingMode != CullingMode::OFF && !bboxInViewFrustum(worldTransform, mesh.bbox)) {
         return;
     }
 

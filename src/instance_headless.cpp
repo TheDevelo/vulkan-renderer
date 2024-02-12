@@ -6,6 +6,7 @@
 #include "instance.hpp"
 #include "options.hpp"
 #include "buffer.hpp"
+#include "scene.hpp"
 #include "util.hpp"
 
 const int MAX_HEADLESS_RENDER_IMAGES = 3;
@@ -65,6 +66,32 @@ void RenderInstance::initHeadless() {
             event.data = SetAnimationEvent {
                 .time = animTime,
                 .rate = animRate,
+            };
+        }
+        else if (eventType == "CAMERA") {
+            event.type = RI_EV_SWAP_FIXED_CAMERA;
+            event.data = SwapFixedCameraEvent {
+                .name = line,
+            };
+        }
+        else if (eventType == "CULLING") {
+            CullingMode cullingMode;
+            if (line == "none") {
+                cullingMode = CullingMode::OFF;
+            }
+            else if (line == "frustum") {
+                cullingMode = CullingMode::FRUSTUM;
+            }
+            else if (line == "bvh") {
+                cullingMode = CullingMode::BVH;
+            }
+            else {
+                PANIC("Headless events parsing error: Invalid culling mode given to CULLING");
+            }
+
+            event.type = RI_EV_CHANGE_CULLING;
+            event.data = ChangeCullingEvent {
+                .cullingMode = cullingMode,
             };
         }
         else {

@@ -36,6 +36,10 @@ enum RenderInstanceImageStatus {
 };
 
 // Event types and data structs
+struct SwapFixedCameraEvent {
+    std::optional<std::string> name;
+};
+
 struct UserCameraMoveEvent {
     int forwardAmount; // +1 for forward, -1 for backward
     int sideAmount; // +1 for left, -1 for right
@@ -49,6 +53,11 @@ struct UserCameraRotateEvent {
 struct SetAnimationEvent {
     float time;
     float rate;
+};
+
+enum class CullingMode; // Forward declaration
+struct ChangeCullingEvent {
+    CullingMode cullingMode;
 };
 
 struct InternalSaveEvent {
@@ -67,6 +76,7 @@ enum RenderInstanceEventType {
     RI_EV_USER_CAMERA_ROTATE,
     RI_EV_TOGGLE_ANIMATION,
     RI_EV_SET_ANIMATION,
+    RI_EV_CHANGE_CULLING,
     RI_EV_INTERNAL_AVAILABLE,
     RI_EV_INTERNAL_SAVE,
     RI_EV_INTERNAL_MARK,
@@ -76,9 +86,11 @@ struct RenderInstanceEvent {
     RenderInstanceEventType type;
     float timestamp; // The timestamp of when the event happened, for headless mode. In microseconds
     std::variant<
+        SwapFixedCameraEvent,
         UserCameraMoveEvent,
         UserCameraRotateEvent,
         SetAnimationEvent,
+        ChangeCullingEvent,
         InternalSaveEvent,
         InternalMarkEvent
     > data;

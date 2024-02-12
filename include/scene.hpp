@@ -155,10 +155,10 @@ struct CullingCamera {
     std::optional<float> farZ;
 };
 
-enum CullingMode {
-    CULLING_OFF,
-    CULLING_FRUSTUM,
-    CULLING_BVH,
+enum class CullingMode {
+    OFF,
+    FRUSTUM,
+    BVH,
 };
 
 class Scene {
@@ -171,6 +171,7 @@ public:
     void moveUserCamera(UserCameraMoveEvent moveAmount, float dt);
     void rotateUserCamera(UserCameraRotateEvent rotateAmount);
     void updateAnimation(float time);
+    void switchCameraByName(std::string name);
 
     // Cameras are public so that the "outside" can change the selected camera
     uint32_t selectedCamera = 0;

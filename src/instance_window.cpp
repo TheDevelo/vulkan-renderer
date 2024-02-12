@@ -39,6 +39,7 @@ static void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int actio
     if (key == GLFW_KEY_C && action == GLFW_PRESS) {
         instance->eventQueue.emplace_back(RenderInstanceEvent {
             .type = RI_EV_SWAP_FIXED_CAMERA,
+            .data = SwapFixedCameraEvent {},
         });
     }
 

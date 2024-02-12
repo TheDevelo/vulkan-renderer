@@ -633,12 +633,20 @@ private:
             // Process events
             for (RenderInstanceEvent event : renderInstance->eventQueue) {
                 if (event.type == RI_EV_SWAP_FIXED_CAMERA) {
-                    if (scene.useUserCamera && scene.cameras.size() != 0) {
+                    SwapFixedCameraEvent data = get<SwapFixedCameraEvent>(event.data);
+                    if (data.name.has_value()) {
+                        scene.switchCameraByName(data.name.value());
                         scene.useUserCamera = false;
                         scene.useDebugCamera = false;
                     }
-                    else if (scene.cameras.size() != 0) {
-                        scene.selectedCamera = (scene.selectedCamera + 1) % scene.cameras.size();
+                    else {
+                        if (scene.useUserCamera && scene.cameras.size() != 0) {
+                            scene.useUserCamera = false;
+                            scene.useDebugCamera = false;
+                        }
+                        else if (scene.cameras.size() != 0) {
+                            scene.selectedCamera = (scene.selectedCamera + 1) % scene.cameras.size();
+                        }
                     }
                 }
                 else if (event.type == RI_EV_USE_USER_CAMERA) {
@@ -663,6 +671,10 @@ private:
                     SetAnimationEvent data = get<SetAnimationEvent>(event.data);
                     animationTime = data.time;
                     animationRate = data.rate;
+                }
+                else if (event.type == RI_EV_CHANGE_CULLING) {
+                    ChangeCullingEvent data = get<ChangeCullingEvent>(event.data);
+                    scene.cullingMode = data.cullingMode;
                 }
             }
 
