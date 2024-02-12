@@ -1,14 +1,10 @@
 #pragma once
-
 #include <optional>
 #include <string>
 
-namespace options {
-    enum CullingMode {
-        CULLING_OFF,
-        CULLING_FRUSTUM,
-    };
+#include "scene.hpp"
 
+namespace options {
     void parse(int argc, char** argv);
 
     std::string getScenePath();
@@ -21,5 +17,5 @@ namespace options {
     bool logFrameTimes();
     bool isHeadless();
     std::string getHeadlessEventsPath();
-    CullingMode getCullingMode();
+    CullingMode getDefaultCullingMode();
 }

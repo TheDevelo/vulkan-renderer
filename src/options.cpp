@@ -14,7 +14,7 @@ static uint32_t windowWidth = 1280;
 static uint32_t windowHeight = 960;
 static bool logFrameTimesBool = false;
 static std::optional<std::string> headlessEventsPath;
-static options::CullingMode cullingMode = options::CULLING_FRUSTUM;
+static CullingMode cullingMode = CULLING_BVH;
 
 namespace options {
     void parse(int argc, char** argv) {
@@ -95,6 +95,9 @@ namespace options {
                 else if (args[currentIndex] == "frustum") {
                     cullingMode = CULLING_FRUSTUM;
                 }
+                else if (args[currentIndex] == "bvh") {
+                    cullingMode = CULLING_BVH;
+                }
                 else {
                     PANIC("invalid culling mode provided to --culling");
                 }
@@ -155,7 +158,7 @@ namespace options {
         return headlessEventsPath.value();
     }
 
-    CullingMode getCullingMode() {
+    CullingMode getDefaultCullingMode() {
         return cullingMode;
     }
 }

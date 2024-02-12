@@ -28,6 +28,11 @@ void Scene::renderNode(SceneRenderInfo const& sceneRenderInfo, uint32_t nodeId, 
     }
     Node& node = nodes[nodeId];
 
+    // Cull the node
+    if (cullingMode == CULLING_BVH && node.bbox.has_value() && !bboxInViewFrustum(parentToWorldTransform, node.bbox.value())) {
+        return;
+    }
+
     // Accumulate node's transform
     Mat4<float> worldTransform = linear::mmul(parentToWorldTransform, node.transform);
 
@@ -53,10 +58,10 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
     if (meshId >= meshes.size()) {
         PANIC(string_format("tried to render mesh %u out of range!", meshId));
     }
-
     Mesh& mesh = meshes[meshId];
+
     // Cull the mesh
-    if (options::getCullingMode() != options::CULLING_OFF && !bboxInViewFrustum(worldTransform, mesh.bboxMin, mesh.bboxMax)) {
+    if (cullingMode != CULLING_OFF && !bboxInViewFrustum(worldTransform, mesh.bbox)) {
         return;
     }
 
@@ -352,13 +357,13 @@ bool bboxBehindPlane(Vec3<float> const& planePos, Vec3<float> const& planeNormal
     return cornerDot + extentXDot + extentYDot + extentZDot < -EPSILON;
 }
 
-bool Scene::bboxInViewFrustum(Mat4<float> const& worldTransform, Vec3<float> const& bboxMin, Vec3<float> const& bboxMax) {
+bool Scene::bboxInViewFrustum(Mat4<float> const& worldTransform, AxisAlignedBoundingBox const& bbox) {
     // Transform the bounding box into view space by transforming one corner of the bounding box, and the XYZ extents to the opposite corner
     Mat4<float> localToView = linear::mmul(cullingCamera.viewMatrix, worldTransform);
-    Vec3<float> bboxCorner = linear::mmul(localToView, Vec4<float>(bboxMin, 1.0f)).xyz;
-    Vec3<float> bboxExtentX = linear::mmul(localToView, Vec4<float>(bboxMax.x - bboxMin.x, 0.0f, 0.0f, 0.0f)).xyz;
-    Vec3<float> bboxExtentY = linear::mmul(localToView, Vec4<float>(0.0f, bboxMax.y - bboxMin.y, 0.0f, 0.0f)).xyz;
-    Vec3<float> bboxExtentZ = linear::mmul(localToView, Vec4<float>(0.0f, 0.0f, bboxMax.z - bboxMin.z, 0.0f)).xyz;
+    Vec3<float> bboxCorner = linear::mmul(localToView, Vec4<float>(bbox.minCorner, 1.0f)).xyz;
+    Vec3<float> bboxExtentX = linear::mmul(localToView, Vec4<float>(bbox.maxCorner.x - bbox.minCorner.x, 0.0f, 0.0f, 0.0f)).xyz;
+    Vec3<float> bboxExtentY = linear::mmul(localToView, Vec4<float>(0.0f, bbox.maxCorner.y - bbox.minCorner.y, 0.0f, 0.0f)).xyz;
+    Vec3<float> bboxExtentZ = linear::mmul(localToView, Vec4<float>(0.0f, 0.0f, bbox.maxCorner.z - bbox.minCorner.z, 0.0f)).xyz;
 
     // Compute the normals/positions for our frustum. Note that our bboxBehindPlane check doesn't depend on the normal being unit, as we are only checking sign.
     Vec3<float> topNormal = Vec3<float>(0.0f, -cullingCamera.nearZ, -cullingCamera.halfNearHeight);

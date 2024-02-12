@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <limits>
 #include <map>
+#include <set>
 #include <cstring>
 
 #include "instance.hpp"
@@ -11,15 +12,34 @@
 #include "scene.hpp"
 #include "util.hpp"
 
-// Helper for computing the bounding box of a mesh
-void addToBBox(Vec3<float> const& position, Vec3<float>& bboxMin, Vec3<float>& bboxMax) {
-    bboxMin.x = std::min(position.x, bboxMin.x);
-    bboxMin.y = std::min(position.y, bboxMin.y);
-    bboxMin.z = std::min(position.z, bboxMin.z);
+// Helpers for computing the bounding box of a mesh
+void addVertToBBox(Vec3<float> const& position, AxisAlignedBoundingBox& bbox) {
+    bbox.minCorner.x = std::min(position.x, bbox.minCorner.x);
+    bbox.minCorner.y = std::min(position.y, bbox.minCorner.y);
+    bbox.minCorner.z = std::min(position.z, bbox.minCorner.z);
 
-    bboxMax.x = std::max(position.x, bboxMax.x);
-    bboxMax.y = std::max(position.y, bboxMax.y);
-    bboxMax.z = std::max(position.z, bboxMax.z);
+    bbox.maxCorner.x = std::max(position.x, bbox.maxCorner.x);
+    bbox.maxCorner.y = std::max(position.y, bbox.maxCorner.y);
+    bbox.maxCorner.z = std::max(position.z, bbox.maxCorner.z);
+};
+
+void addTransformedBBoxToBBox(AxisAlignedBoundingBox const& srcBBox, Mat4<float> const& transform, AxisAlignedBoundingBox& dstBBox) {
+    // Transform the srcBBox using a corner and 3 extents
+    Vec3<float> transBBoxCorner = linear::mmul(transform, Vec4<float>(srcBBox.minCorner, 1.0f)).xyz;
+    Vec3<float> transBBoxExtentX = linear::mmul(transform, Vec4<float>(srcBBox.maxCorner.x - srcBBox.minCorner.x, 0.0f, 0.0f, 0.0f)).xyz;
+    Vec3<float> transBBoxExtentY = linear::mmul(transform, Vec4<float>(0.0f, srcBBox.maxCorner.y - srcBBox.minCorner.y, 0.0f, 0.0f)).xyz;
+    Vec3<float> transBBoxExtentZ = linear::mmul(transform, Vec4<float>(0.0f, 0.0f, srcBBox.maxCorner.z - srcBBox.minCorner.z, 0.0f)).xyz;
+
+    // Add each corner to the destination bounding box
+    // TODO: I think theres a better way to add this, where you set transMin & transMax = corner, then add positive components of the extent to max and negative to min
+    addVertToBBox(transBBoxCorner, dstBBox);
+    addVertToBBox(transBBoxCorner + transBBoxExtentX, dstBBox);
+    addVertToBBox(transBBoxCorner + transBBoxExtentY, dstBBox);
+    addVertToBBox(transBBoxCorner + transBBoxExtentX + transBBoxExtentY, dstBBox);
+    addVertToBBox(transBBoxCorner + transBBoxExtentZ, dstBBox);
+    addVertToBBox(transBBoxCorner + transBBoxExtentX + transBBoxExtentZ, dstBBox);
+    addVertToBBox(transBBoxCorner + transBBoxExtentY + transBBoxExtentZ, dstBBox);
+    addVertToBBox(transBBoxCorner + transBBoxExtentX + transBBoxExtentY + transBBoxExtentZ, dstBBox);
 };
 
 // Constructor for scene directly from a JSON s72 file
@@ -164,9 +184,11 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         if (!meshObj.contains("count") || !meshObj.at("count").is_num()) {
             PANIC("Scene loading error: mesh is missing vertex count");
         }
+        else if (meshObj.at("count").as_num() == 0.0) {
+            PANIC("Scene loading error: mesh has no vertices");
+        }
 
         // TODO: account for different attribute sets
-        // Each vertex has a size of 28, so size is vertexCount * 28
         totalBufferCount += static_cast<uint32_t>(meshObj.at("count").as_num());
     }
 
@@ -188,8 +210,10 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             .vertexBufferIndex = 0,
             .vertexBufferOffset = curBufferCount * static_cast<uint32_t>(sizeof(Vertex)),
 
-            .bboxMin = Vec3<float>(std::numeric_limits<float>::max()),
-            .bboxMax = Vec3<float>(std::numeric_limits<float>::min()),
+            .bbox = AxisAlignedBoundingBox {
+                .minCorner = Vec3<float>(std::numeric_limits<float>::max()),
+                .maxCorner = Vec3<float>(std::numeric_limits<float>::min()),
+            }
         };
 
         // Load the file and copy into the total buffer
@@ -203,7 +227,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
         // Calculate the bounding box for our mesh
         for (uint32_t i = curBufferCount; i < curBufferCount + mesh.vertexCount; i++) {
-            addToBBox(buffer[i].pos, mesh.bboxMin, mesh.bboxMax);
+            addVertToBBox(buffer[i].pos, mesh.bbox);
         }
 
         meshes.push_back(mesh);
@@ -240,6 +264,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     }
 
     // Iterate through all the drivers and construct their Driver representation
+    std::set<uint32_t> dynamicNodes;
     minAnimTime = std::numeric_limits<float>::max();
     maxAnimTime = std::numeric_limits<float>::min();
     for (auto idPair : driverIdMap) {
@@ -335,6 +360,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
         minAnimTime = std::min(driver.keyTimes[0], minAnimTime);
         maxAnimTime = std::max(driver.keyTimes[driver.keyTimes.size() - 1], maxAnimTime);
+        dynamicNodes.insert(driver.targetNode);
         drivers.push_back(driver);
     }
 
@@ -367,6 +393,13 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         .phi = 0.0f,
         .position = Vec3<float>(0.0f),
     };
+
+    // Compute bounding boxes for all nodes that aren't animated, and don't have animated children
+    std::set<uint32_t> visitedNodes;
+    for (uint32_t rootNode : sceneRoots) {
+        computeNodeBBox(rootNode, dynamicNodes, visitedNodes);
+    }
+    cullingMode = options::getDefaultCullingMode();
 }
 
 // Helper to construct a vertex buffer from a CPU buffer
@@ -393,6 +426,58 @@ uint32_t Scene::vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderIn
     copyBuffers(*renderInstance, bufferCopyInfos, 1);
 
     return buffers.size() - 1;
+}
+
+
+
+// Helper to recursively compute the bounding box of a node with dynamic programming
+bool Scene::computeNodeBBox(uint32_t nodeId, std::set<uint32_t>& dynamicNodes, std::set<uint32_t>& visitedNodes) {
+    // Return if we have already visited the node before
+    if (visitedNodes.contains(nodeId)) {
+        return !dynamicNodes.contains(nodeId);
+    }
+    Node& node = nodes[nodeId];
+
+    bool bboxChanged = false;
+    AxisAlignedBoundingBox bbox {
+        .minCorner = Vec3<float>(std::numeric_limits<float>::max()),
+        .maxCorner = Vec3<float>(std::numeric_limits<float>::min()),
+    };
+
+    // Add the bounding box of the attached mesh, if we have one
+    if (node.meshIndex.has_value()) {
+        Mesh const& mesh = meshes[node.meshIndex.value()];
+        addTransformedBBoxToBBox(mesh.bbox, node.transform, bbox);
+        bboxChanged = true;
+    }
+
+    // Add the bounding boxes of all the children
+    // NOTE: even if we find a dynamic child, we still need to go through the rest so that their bounding boxes can be computed
+    bool dynamic = dynamicNodes.contains(nodeId);
+    for (uint32_t childId : node.childIndices) {
+        if (computeNodeBBox(childId, dynamicNodes, visitedNodes)) {
+            Node& child = nodes[childId];
+            if (!dynamic && child.bbox.has_value()) {
+                // Add the child's bounding box to ours
+                addTransformedBBoxToBBox(child.bbox.value(), node.transform, bbox);
+                bboxChanged = true;
+            }
+        }
+        else {
+            // Child node is dynamic, so we are dynamic now
+            dynamic = true;
+        }
+    }
+
+    if (dynamic) {
+        dynamicNodes.insert(nodeId);
+    }
+    else if (bboxChanged) {
+        node.bbox = bbox;
+    }
+
+    visitedNodes.insert(nodeId);
+    return true;
 }
 
 void Node::calculateTransforms() {

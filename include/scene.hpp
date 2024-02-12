@@ -1,6 +1,8 @@
+#pragma once
 #include <vulkan/vulkan.h>
 
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -62,6 +64,12 @@ struct Vertex {
     }
 };
 
+// Container for a local-space axis-aligned bounding box. Represented by the corners with minimal XYZ and maximal XYZ
+struct AxisAlignedBoundingBox {
+    Vec3<float> minCorner;
+    Vec3<float> maxCorner;
+};
+
 // Scene class & container structs
 struct Node {
     std::string name;
@@ -80,6 +88,9 @@ struct Node {
     std::optional<uint32_t> meshIndex;
     std::optional<uint32_t> cameraIndex;
 
+    // Bounding box used for BVH culling. Will be None if the node is dynamic (it or a child is animated)
+    std::optional<AxisAlignedBoundingBox> bbox;
+
     void calculateTransforms();
 };
 
@@ -92,8 +103,7 @@ struct Mesh {
     uint32_t vertexBufferOffset;
 
     // Bounding box data
-    Vec3<float> bboxMin;
-    Vec3<float> bboxMax;
+    AxisAlignedBoundingBox bbox;
 };
 
 struct Camera {
@@ -145,6 +155,12 @@ struct CullingCamera {
     std::optional<float> farZ;
 };
 
+enum CullingMode {
+    CULLING_OFF,
+    CULLING_FRUSTUM,
+    CULLING_BVH,
+};
+
 class Scene {
 public:
     Scene() = default;
@@ -165,6 +181,7 @@ public:
 
     bool useUserCamera;
     bool useDebugCamera;
+    CullingMode cullingMode;
 
     ViewProjMatrices viewProj;
 private:
@@ -172,9 +189,10 @@ private:
     void renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, Mat4<float> const& worldTransform);
 
     uint32_t vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderInstance, const void* inBuffer, uint32_t size);
+    bool computeNodeBBox(uint32_t nodeId, std::set<uint32_t>& dynamicNodes, std::set<uint32_t>& visitedNodes);
 
     std::optional<Mat4<float>> findCameraWTLTransform(uint32_t nodeId, uint32_t cameraId);
-    bool bboxInViewFrustum(Mat4<float> const& worldTransform, Vec3<float> const& bboxMin, Vec3<float> const& bboxMax);
+    bool bboxInViewFrustum(Mat4<float> const& worldTransform, AxisAlignedBoundingBox const& bbox);
 
     std::vector<uint32_t> sceneRoots;
     std::vector<Node> nodes;
