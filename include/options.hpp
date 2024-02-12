@@ -18,4 +18,5 @@ namespace options {
     bool isHeadless();
     std::string getHeadlessEventsPath();
     CullingMode getDefaultCullingMode();
+    uint32_t getHeadlessRenderTargetCount();
 }

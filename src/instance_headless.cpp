@@ -9,8 +9,6 @@
 #include "scene.hpp"
 #include "util.hpp"
 
-const int MAX_HEADLESS_RENDER_IMAGES = 3;
-
 void RenderInstance::initHeadless() {
     // Parse the event file into the event list
     std::ifstream eventsFile(options::getHeadlessEventsPath());
@@ -109,7 +107,7 @@ void RenderInstance::initHeadless() {
     };
 
     // Create the render targets we want to use for headless mode
-    for (int i = 0; i < MAX_HEADLESS_RENDER_IMAGES; i++) {
+    for (uint32_t i = 0; i < options::getHeadlessRenderTargetCount(); i++) {
         HeadlessRenderTarget target {
             .renderingSemaphore = VK_NULL_HANDLE,
         };
@@ -144,7 +142,7 @@ void RenderInstance::initHeadless() {
 };
 
 void RenderInstance::cleanupHeadless() {
-    for (int i = 0; i < MAX_HEADLESS_RENDER_IMAGES; i++) {
+    for (uint32_t i = 0; i < options::getHeadlessRenderTargetCount(); i++) {
         HeadlessRenderTarget const& target = headlessRenderTargets[i];
         vkDestroyImage(device, target.image, nullptr);
         vkFreeMemory(device, target.imageMemory, nullptr);
@@ -189,7 +187,7 @@ float RenderInstance::processEventsHeadless() {
             // Get the most recently released frame to copy
             int lastReleasedImage = lastUsedImage - 1;
             if (lastReleasedImage == -1) {
-                lastReleasedImage = MAX_HEADLESS_RENDER_IMAGES - 1;
+                lastReleasedImage = options::getHeadlessRenderTargetCount() - 1;
             }
             HeadlessRenderTarget& target = headlessRenderTargets[lastReleasedImage];
             target.copyLatch = std::make_unique<std::latch>(1);
@@ -295,7 +293,7 @@ RenderInstanceImageStatus RenderInstance::acquireImageHeadless(VkSemaphore avail
     vkSignalSemaphore(device, &signalInfo);
 
     // Set the next image as longest used ago
-    lastUsedImage = (lastUsedImage + 1) % MAX_HEADLESS_RENDER_IMAGES;
+    lastUsedImage = (lastUsedImage + 1) % options::getHeadlessRenderTargetCount();
     return RI_TARGET_OK;
 }
 

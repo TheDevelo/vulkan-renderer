@@ -15,6 +15,7 @@ static uint32_t windowHeight = 960;
 static bool logFrameTimesBool = false;
 static std::optional<std::string> headlessEventsPath;
 static CullingMode cullingMode = CullingMode::BVH;
+static uint32_t headlessRenderTargetCount = 3;
 
 namespace options {
     void parse(int argc, char** argv) {
@@ -84,6 +85,18 @@ namespace options {
                 }
 
                 headlessEventsPath = args[currentIndex];
+            }
+            else if (currentArg == "--headless-render-target-count") {
+                currentIndex += 1;
+                if (currentIndex >= argc) {
+                    PANIC("missing argument to --headless-render-target-count");
+                }
+
+                std::string_view countStr = args[currentIndex];
+                auto countResult = std::from_chars(countStr.data(), countStr.data() + countStr.size(), headlessRenderTargetCount);
+                if (countResult.ec == std::errc::invalid_argument || countResult.ec == std::errc::result_out_of_range) {
+                    PANIC("invalid argument to --headless-render-target-count");
+                }
             }
             else if (currentArg == "--culling") {
                 currentIndex += 1;
@@ -165,5 +178,9 @@ namespace options {
 
     CullingMode getDefaultCullingMode() {
         return cullingMode;
+    }
+
+    uint32_t getHeadlessRenderTargetCount() {
+        return headlessRenderTargetCount;
     }
 }
