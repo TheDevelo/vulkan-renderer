@@ -2,6 +2,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <latch>
 #include <optional>
 #include <thread>
 #include <variant>
@@ -96,6 +97,25 @@ struct RenderInstanceEvent {
     > data;
 };
 
+// Container for a headless render target, as well as the needed machinery to copy the image to disk in parallel
+struct HeadlessRenderTarget {
+    // The render target itself
+    VkImage image;
+    VkDeviceMemory imageMemory;
+
+    // Buffer and command buffer used to copy the image to CPU
+    VkCommandBuffer copyCommandBuffer;
+    VkBuffer copyBuffer;
+    VkDeviceMemory copyBufferMemory;
+    void* copyBufferMap;
+
+    // Synchronization
+    VkFence copyFence;
+    VkSemaphore renderingSemaphore;
+    uint64_t renderingSemaphoreValue; // The timeline semaphore value we are waiting for
+    std::optional<std::unique_ptr<std::latch>> copyLatch;
+};
+
 // RenderInstance provides a Vulkan instance/device to render to, a way to acquire/present render targets, and a way to handle windowing events
 class RenderInstance {
 public:
@@ -161,18 +181,8 @@ private:
     std::vector<RenderInstanceEvent> headlessEvents;
     uint32_t currentHeadlessEvent;
 
-    std::vector<VkImage> headlessRenderImages;
-    std::vector<VkDeviceMemory> headlessRenderImagesMemory;
-
-    std::vector<VkSemaphore> renderingSemaphores;
-    std::vector<uint64_t> renderingSemaphoreValues; // The timeline semaphore value we are waiting for
-
+    std::vector<HeadlessRenderTarget> headlessRenderTargets;
     uint32_t lastUsedImage;
-
-    VkBuffer imageCopyBuffer;
-    VkDeviceMemory imageCopyBufferMemory;
-    void* imageCopyBufferMap;
-
     std::vector<std::thread> imageWriters;
 
     // Fake window (headless) functions

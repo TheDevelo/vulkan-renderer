@@ -42,11 +42,10 @@ struct BufferCopy {
 };
 
 // Buffer/image copying and transitioning helpers
-void copyBuffers(RenderInstance const& renderInstance, BufferCopy* bufferCopyInfos, uint32_t bufferCopyCount);
-void copyBufferToImage(RenderInstance const& renderInstance, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
-void copyImageToBuffer(RenderInstance const& renderInstance, VkImage image, VkBuffer buffer, uint32_t width, uint32_t height);
-uint32_t findMemoryType(RenderInstance const& renderInstance, uint32_t typeFilter, VkMemoryPropertyFlags properties);
-void transitionImageLayout(RenderInstance const& renderInstance, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+void copyBuffers(VkCommandBuffer commandBuffer, BufferCopy* bufferCopyInfos, uint32_t bufferCopyCount);
+void copyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+void copyImageToBuffer(VkCommandBuffer commandBuffer, VkImage image, VkBuffer buffer, uint32_t width, uint32_t height);
+void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
 
 // Raw buffer/image creation methods (for headless, as RenderInstance can't use CombinedImage/CombinedBuffers)
 void createBuffer(RenderInstance const& renderInstance, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memProps, VkBuffer& buffer, VkDeviceMemory& bufferMemory);

@@ -604,7 +604,7 @@ private:
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             VK_ERR(vkCreateSemaphore(renderInstance->device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]), "failed to create semaphores!");
             VK_ERR(vkCreateSemaphore(renderInstance->device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]), "failed to create semaphores!");
-            VK_ERR(vkCreateFence(renderInstance->device, &fenceInfo, nullptr, &inFlightFences[i]), "failed to create semaphores!");
+            VK_ERR(vkCreateFence(renderInstance->device, &fenceInfo, nullptr, &inFlightFences[i]), "failed to create fences!");
             imageAvailableSemaphoreValues[i] = 0;
             renderFinishedSemaphoreValues[i] = 0;
         }

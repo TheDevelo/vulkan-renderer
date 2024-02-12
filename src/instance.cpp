@@ -96,6 +96,11 @@ RenderInstance::RenderInstance(RenderInstanceOptions const& opts) {
 
 // Cleanup destructor for our render instance
 RenderInstance::~RenderInstance() {
+    // Wait for any background tasks to finish before we start destructing resources
+    for (std::thread& writer : imageWriters) {
+        writer.join();
+    }
+
     if (options::isHeadless()) {
         cleanupHeadless();
     }
@@ -120,10 +125,6 @@ RenderInstance::~RenderInstance() {
         UVkDestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
     }
     vkDestroyInstance(instance, nullptr);
-
-    for (std::thread& writer : imageWriters) {
-        writer.join();
-    }
 }
 
 // Create our instance along with our debugging layer if enabled

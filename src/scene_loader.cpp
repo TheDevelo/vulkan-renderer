@@ -404,6 +404,8 @@ uint32_t Scene::vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderIn
     memcpy(data, inBuffer, (size_t) size);
     vkUnmapMemory(renderInstance->device, stagingBuffer.bufferMemory);
 
+    // Copy from staging buffer to vertex buffer
+    VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
     BufferCopy bufferCopyInfos[] = {
         {
             .srcBuffer = stagingBuffer.buffer,
@@ -413,7 +415,8 @@ uint32_t Scene::vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderIn
             .size = size,
         },
     };
-    copyBuffers(*renderInstance, bufferCopyInfos, 1);
+    copyBuffers(commandBuffer, bufferCopyInfos, 1);
+    endSingleUseCBuffer(*renderInstance, commandBuffer);
 
     return buffers.size() - 1;
 }

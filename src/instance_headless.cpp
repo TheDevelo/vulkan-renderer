@@ -110,35 +110,50 @@ void RenderInstance::initHeadless() {
 
     // Create the render targets we want to use for headless mode
     for (int i = 0; i < MAX_HEADLESS_RENDER_IMAGES; i++) {
-        VkImage image;
-        VkDeviceMemory imageMemory;
+        HeadlessRenderTarget target {
+            .renderingSemaphore = VK_NULL_HANDLE,
+        };
+
+        // Create the render image itself
         createImage(*this, renderImageExtent.width, renderImageExtent.height,
                     renderImageFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                    image, imageMemory);
+                    target.image, target.imageMemory);
 
-        headlessRenderImages.push_back(image);
-        headlessRenderImagesMemory.push_back(imageMemory);
-        renderImageViews.push_back(createImageView(device, image, renderImageFormat, VK_IMAGE_ASPECT_COLOR_BIT));
+        // Allocate the copying command buffer
+        VkCommandBufferAllocateInfo commandBufferAllocInfo {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = commandPool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+        };
+        VK_ERR(vkAllocateCommandBuffers(device, &commandBufferAllocInfo, &target.copyCommandBuffer), "failed to allocate command buffer!");
 
-        renderingSemaphores.push_back(VK_NULL_HANDLE);
+        // Create the copy destination buffer for when we want to save a rendered image
+        VkDeviceSize copyBufferSize = renderImageExtent.width * renderImageExtent.height * 4;
+        createBuffer(*this, copyBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, target.copyBuffer, target.copyBufferMemory);
+        vkMapMemory(device, target.copyBufferMemory, 0, copyBufferSize, 0, &target.copyBufferMap);
+
+        // Create the render target fence
+        VkFenceCreateInfo fenceInfo { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, };
+        VK_ERR(vkCreateFence(device, &fenceInfo, nullptr, &target.copyFence), "failed to create fence!");
+
+        headlessRenderTargets.push_back(std::move(target));
+        renderImageViews.push_back(createImageView(device, target.image, renderImageFormat, VK_IMAGE_ASPECT_COLOR_BIT));
     }
-
-    // Create the copy destination buffer for when we want to save a rendered image
-    VkDeviceSize imageCopyBufferSize = renderImageExtent.width * renderImageExtent.height * 4;
-    createBuffer(*this, imageCopyBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, imageCopyBuffer, imageCopyBufferMemory);
-    vkMapMemory(device, imageCopyBufferMemory, 0, imageCopyBufferSize, 0, &imageCopyBufferMap);
-
     lastUsedImage = 0;
-    renderingSemaphoreValues.resize(MAX_HEADLESS_RENDER_IMAGES);
 };
 
 void RenderInstance::cleanupHeadless() {
     for (int i = 0; i < MAX_HEADLESS_RENDER_IMAGES; i++) {
-        vkDestroyImage(device, headlessRenderImages[i], nullptr);
-        vkFreeMemory(device, headlessRenderImagesMemory[i], nullptr);
+        HeadlessRenderTarget const& target = headlessRenderTargets[i];
+        vkDestroyImage(device, target.image, nullptr);
+        vkFreeMemory(device, target.imageMemory, nullptr);
+
+        vkDestroyBuffer(device, target.copyBuffer, nullptr);
+        vkFreeMemory(device, target.copyBufferMemory, nullptr);
+
+        vkDestroyFence(device, target.copyFence, nullptr);
     }
-    vkDestroyBuffer(device, imageCopyBuffer, nullptr);
-    vkFreeMemory(device, imageCopyBufferMemory, nullptr);
 }
 
 bool RenderInstance::shouldCloseHeadless() {
@@ -171,40 +186,68 @@ float RenderInstance::processEventsHeadless() {
             // Save last rendered image to output file
             InternalSaveEvent const& data = get<InternalSaveEvent>(event.data);
 
-            // Wait for the most recently released frame to finish rendering
+            // Get the most recently released frame to copy
             int lastReleasedImage = lastUsedImage - 1;
             if (lastReleasedImage == -1) {
                 lastReleasedImage = MAX_HEADLESS_RENDER_IMAGES - 1;
             }
-            VkSemaphoreWaitInfo waitInfo {
-                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-                .semaphoreCount = 1,
-                .pSemaphores = &renderingSemaphores[lastReleasedImage],
-                .pValues = &renderingSemaphoreValues[lastReleasedImage],
+            HeadlessRenderTarget& target = headlessRenderTargets[lastReleasedImage];
+            target.copyLatch = std::make_unique<std::latch>(1);
+
+            // Copy the image to the copy buffer once the frame has finished rendering
+            VkCommandBufferBeginInfo beginInfo { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, };
+            VK_ERR(vkBeginCommandBuffer(target.copyCommandBuffer, &beginInfo), "failed to begin recording command buffer!");
+
+            transitionImageLayout(target.copyCommandBuffer, target.image, renderImageFormat, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            copyImageToBuffer(target.copyCommandBuffer, target.image, target.copyBuffer, renderImageExtent.width, renderImageExtent.height);
+            transitionImageLayout(target.copyCommandBuffer, target.image, renderImageFormat, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+            vkEndCommandBuffer(target.copyCommandBuffer);
+            VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            VkTimelineSemaphoreSubmitInfo timelineInfo {
+                .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+                .waitSemaphoreValueCount = 1,
+                .pWaitSemaphoreValues = &target.renderingSemaphoreValue,
             };
-            vkWaitSemaphores(device, &waitInfo, UINT64_MAX);
+            VkSubmitInfo submitInfo {
+                .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                .pNext = &timelineInfo,
+                .waitSemaphoreCount = 1,
+                .pWaitSemaphores = &target.renderingSemaphore,
+                .pWaitDstStageMask = &waitStage,
+                .commandBufferCount = 1,
+                .pCommandBuffers = &target.copyCommandBuffer,
+            };
+            vkQueueSubmit(graphicsQueue, 1, &submitInfo, target.copyFence);
 
-            // Copy the image to the copy buffer
-            transitionImageLayout(*this, headlessRenderImages[lastReleasedImage], renderImageFormat, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-            copyImageToBuffer(*this, headlessRenderImages[lastReleasedImage], imageCopyBuffer, renderImageExtent.width, renderImageExtent.height);
-            transitionImageLayout(*this, headlessRenderImages[lastReleasedImage], renderImageFormat, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+            // Spawn a thread to output the copied image to file using the ppm file format
+            std::thread writer([&, renderImageExtent = renderImageExtent, outputPath = data.outputPath] {
+                // Allocate a thread-specific buffer that we'll copy our image to. It lets us release the main thread earlier
+                // Additionally, compacting the image in the memory region given by target.copyBufferMap is slow (I assume because each write then has to be mirrored to the GPU)
+                std::unique_ptr<uint8_t[]> imageCopy(new uint8_t[renderImageExtent.width * renderImageExtent.height * 4]);
 
-            // Output the copied image to file using the ppm file format
-            // We first copy to a secondary buffer because writing to the file itself comparitively very long
-            // That way, we can throw it into a thread and have it work in the background
-            std::unique_ptr<uint8_t[]> imageCopy(new uint8_t[renderImageExtent.width * renderImageExtent.height * 4]);
-            memcpy(imageCopy.get(), imageCopyBufferMap, renderImageExtent.width * renderImageExtent.height * 4);
+                // Wait for the copy to finish
+                vkWaitForFences(device, 1, &target.copyFence, VK_TRUE, UINT64_MAX);
+                vkResetFences(device, 1, &target.copyFence);
 
-            std::thread writer([renderImageExtent = renderImageExtent, imageCopy = move(imageCopy), outputPath = data.outputPath] {
+                // Copy the image to our thread-specific buffer
+                memcpy(imageCopy.get(), target.copyBufferMap, renderImageExtent.width * renderImageExtent.height * 4);
+
+                // Signal that we are done using the image to the latch
+                target.copyLatch.value()->count_down();
+
                 std::ofstream outputImage(outputPath, std::ios::out | std::ios::binary);
 
+                // Write the PPM header
                 std::string header = string_format("P6 %d %d 255\n", renderImageExtent.width, renderImageExtent.height);
                 outputImage.write(header.c_str(), header.size());
 
+                // Write the image in PPM format
+                // Since the image is RGBA, while PPM only takes RGB, we need to first compact the image down
                 for (uint32_t p = 0; p < renderImageExtent.width * renderImageExtent.height; p++) {
-                    // Need to copy pixel by pixel since PPM doesn't support alpha
-                    outputImage.write(reinterpret_cast<const char*>(imageCopy.get()) + p * 4, 3);
+                    memcpy(imageCopy.get() + p * 3, imageCopy.get() + p * 4, 3);
                 }
+                outputImage.write(reinterpret_cast<const char*>(imageCopy.get()), renderImageExtent.width * renderImageExtent.height * 3);
             });
             imageWriters.push_back(move(writer));
         }
@@ -223,14 +266,21 @@ float RenderInstance::processEventsHeadless() {
 
 RenderInstanceImageStatus RenderInstance::acquireImageHeadless(VkSemaphore availableSemaphore, uint64_t semaphoreCurVal, uint32_t& dstImageIndex) {
     // Wait for the last used image to finish rendering
-    if (renderingSemaphores[lastUsedImage] != VK_NULL_HANDLE) {
+    HeadlessRenderTarget& target = headlessRenderTargets[lastUsedImage];
+    if (target.renderingSemaphore != VK_NULL_HANDLE) {
         VkSemaphoreWaitInfo waitInfo {
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
             .semaphoreCount = 1,
-            .pSemaphores = &renderingSemaphores[lastUsedImage],
-            .pValues = &renderingSemaphoreValues[lastUsedImage],
+            .pSemaphores = &target.renderingSemaphore,
+            .pValues = &target.renderingSemaphoreValue,
         };
         vkWaitSemaphores(device, &waitInfo, UINT64_MAX);
+    }
+
+    // If the image is being copied to disk, wait until the image is free to be rendered to
+    if (target.copyLatch.has_value()) {
+        target.copyLatch.value()->wait();
+        target.copyLatch = std::nullopt; // Reset the latch
     }
 
     // Tell the client the image to use
@@ -250,7 +300,8 @@ RenderInstanceImageStatus RenderInstance::acquireImageHeadless(VkSemaphore avail
 }
 
 RenderInstanceImageStatus RenderInstance::presentImageHeadless(VkSemaphore renderFinishedSemaphore, uint64_t semaphoreCurVal, uint32_t imageIndex) {
-    renderingSemaphores[imageIndex] = renderFinishedSemaphore;
-    renderingSemaphoreValues[imageIndex] = semaphoreCurVal + 1;
+    HeadlessRenderTarget& target = headlessRenderTargets[imageIndex];
+    target.renderingSemaphore = renderFinishedSemaphore;
+    target.renderingSemaphoreValue = semaphoreCurVal + 1;
     return RI_TARGET_OK;
 }

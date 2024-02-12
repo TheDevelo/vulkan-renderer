@@ -5,6 +5,20 @@
 #include "linear.hpp"
 #include "util.hpp"
 
+// Helper function that gets the memory type we need for allocating a buffer
+uint32_t findMemoryType(RenderInstance const& renderInstance, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(renderInstance.physicalDevice, &memProperties);
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+
+    PANIC("failed to find suitable memory type!");
+}
+
 CombinedBuffer::CombinedBuffer(std::shared_ptr<RenderInstance>& renderInstanceIn, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memProps) : renderInstance(renderInstanceIn) {
     createBuffer(*renderInstance, size, usage, memProps, buffer, bufferMemory);
 }
@@ -79,9 +93,8 @@ CombinedImage::~CombinedImage() {
     vkFreeMemory(renderInstance->device, imageMemory, nullptr);
 }
 
-void copyBuffers(RenderInstance const& renderInstance, BufferCopy* bufferCopyInfos, uint32_t bufferCopyCount) {
-    VkCommandBuffer commandBuffer = beginSingleUseCBuffer(renderInstance);
-
+// Buffer/Image manipulation helpers
+void copyBuffers(VkCommandBuffer commandBuffer, BufferCopy* bufferCopyInfos, uint32_t bufferCopyCount) {
     for (uint32_t i = 0; i < bufferCopyCount; i++) {
         BufferCopy& copyInfo = bufferCopyInfos[i];
 
@@ -92,27 +105,9 @@ void copyBuffers(RenderInstance const& renderInstance, BufferCopy* bufferCopyInf
         };
         vkCmdCopyBuffer(commandBuffer, copyInfo.srcBuffer, copyInfo.dstBuffer, 1, &copyCmd);
     }
-
-    endSingleUseCBuffer(renderInstance, commandBuffer);
 }
 
-// Helper function that gets the memory type we need for allocating a buffer
-uint32_t findMemoryType(RenderInstance const& renderInstance, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-    VkPhysicalDeviceMemoryProperties memProperties;
-    vkGetPhysicalDeviceMemoryProperties(renderInstance.physicalDevice, &memProperties);
-
-    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
-        }
-    }
-
-    PANIC("failed to find suitable memory type!");
-}
-
-void transitionImageLayout(RenderInstance const& renderInstance, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
-    VkCommandBuffer commandBuffer = beginSingleUseCBuffer(renderInstance);
-
+void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
     VkImageMemoryBarrier barrier {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .oldLayout = oldLayout,
@@ -161,13 +156,9 @@ void transitionImageLayout(RenderInstance const& renderInstance, VkImage image, 
     }
 
     vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-    endSingleUseCBuffer(renderInstance, commandBuffer);
 }
 
-void copyBufferToImage(RenderInstance const& renderInstance, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
-    VkCommandBuffer commandBuffer = beginSingleUseCBuffer(renderInstance);
-
+void copyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
     VkBufferImageCopy region {
         .bufferOffset = 0,
         .bufferRowLength = 0,
@@ -183,13 +174,9 @@ void copyBufferToImage(RenderInstance const& renderInstance, VkBuffer buffer, Vk
     };
 
     vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-    endSingleUseCBuffer(renderInstance, commandBuffer);
 }
 
-void copyImageToBuffer(RenderInstance const& renderInstance, VkImage image, VkBuffer buffer, uint32_t width, uint32_t height) {
-    VkCommandBuffer commandBuffer = beginSingleUseCBuffer(renderInstance);
-
+void copyImageToBuffer(VkCommandBuffer commandBuffer, VkImage image, VkBuffer buffer, uint32_t width, uint32_t height) {
     VkBufferImageCopy region {
         .bufferOffset = 0,
         .bufferRowLength = 0,
@@ -205,6 +192,4 @@ void copyImageToBuffer(RenderInstance const& renderInstance, VkImage image, VkBu
     };
 
     vkCmdCopyImageToBuffer(commandBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &region);
-
-    endSingleUseCBuffer(renderInstance, commandBuffer);
 }
