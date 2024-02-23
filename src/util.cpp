@@ -1,6 +1,7 @@
 #include <vulkan/vulkan.h>
 
 #include <fstream>
+#include <cmath>
 
 #include "instance.hpp"
 #include "util.hpp"
@@ -83,4 +84,23 @@ std::vector<char> readFile(const std::string& filename) {
     file.close();
 
     return buffer;
+}
+
+void convertRGBEtoRGB(uint8_t* src, float* dst, uint32_t pixelCount) {
+    for (uint32_t pixel = 0; pixel < pixelCount; pixel++) {
+        uint8_t* srcPixel = src + pixel * 4;
+        float* dstPixel = dst + pixel * 3;
+
+        if (srcPixel[0] == 0 && srcPixel[1] == 0 && srcPixel[2] == 0 && srcPixel[3] == 0) {
+            dstPixel[0] = 0.0f;
+            dstPixel[1] = 0.0f;
+            dstPixel[2] = 0.0f;
+        }
+        else {
+            int exp = static_cast<int>(srcPixel[3]) - 128;
+            dstPixel[0] = std::ldexp((srcPixel[0] + 0.5f) / 256.0f, exp);
+            dstPixel[1] = std::ldexp((srcPixel[1] + 0.5f) / 256.0f, exp);
+            dstPixel[2] = std::ldexp((srcPixel[2] + 0.5f) / 256.0f, exp);
+        }
+    }
 }

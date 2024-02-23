@@ -1,6 +1,4 @@
 #include <vulkan/vulkan.h>
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
 
 #include <algorithm>
 #include <array>
@@ -56,14 +54,10 @@ private:
 
     std::vector<VkFramebuffer> renderTargetFramebuffers;
 
-    /* TODO: Bring back for texture materials
-    std::unique_ptr<CombinedImage> textureImage;
-    VkImageView textureImageView;
+    std::unique_ptr<CombinedCubemap> cubemap;
     VkSampler textureSampler;
-    */
 
     std::unique_ptr<CombinedImage> depthImage;
-    VkImageView depthImageView;
 
     std::vector<CombinedBuffer> uniformBuffers;
     std::vector<void*> uniformBuffersMaps;
@@ -93,10 +87,8 @@ private:
         createDepthImage();
         createFramebuffers();
 
-        /* TODO: Bring back for texture materials
-        createTextureImage();
+        cubemap = loadCubemap(renderInstance, "testcubemap.png");
         createTextureSampler();
-        */
 
         createUniformBuffers();
         createDescriptorSets();
@@ -188,7 +180,6 @@ private:
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
         };
-        /* TODO: Bring back for texture materials
         VkDescriptorSetLayoutBinding samplerLayoutBinding {
             .binding = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -198,9 +189,7 @@ private:
         };
 
         std::array<VkDescriptorSetLayoutBinding, 2> bindings = { mvpLayoutBinding, samplerLayoutBinding };
-        */
 
-        std::array<VkDescriptorSetLayoutBinding, 1> bindings = { mvpLayoutBinding };
         VkDescriptorSetLayoutCreateInfo layoutInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .bindingCount = static_cast<uint32_t>(bindings.size()),
@@ -367,7 +356,7 @@ private:
         for (size_t i = 0; i < renderInstance->renderImageViews.size(); i++) {
             std::array<VkImageView, 2> attachments = {
                 renderInstance->renderImageViews[i],
-                depthImageView,
+                depthImage->imageView,
             };
 
             VkFramebufferCreateInfo framebufferInfo {
@@ -399,44 +388,8 @@ private:
     }
 
     void createDepthImage() {
-        depthImage = std::make_unique<CombinedImage>(renderInstance, renderInstance->renderImageExtent.width, renderInstance->renderImageExtent.height,
-                                                     VK_FORMAT_D32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        depthImageView = createImageView(renderInstance->device, depthImage->image, VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT);
-    }
-
-    /* TODO: Bring back for texture materials
-    // Create a texture and its associated image view
-    void createTextureImage() {
-        // Load the texture
-        int textureWidth, textureHeight, textureChannels;
-        stbi_uc* pixels = stbi_load("textures/marble.png", &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);
-        if (!pixels) {
-            PANIC("failed to load texture image!");
-        }
-
-        // Create a staging buffer for our image
-        VkDeviceSize imageSize = textureWidth * textureHeight * 4;
-        CombinedBuffer stagingBuffer(renderInstance, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-        void* data;
-        vkMapMemory(renderInstance->device, stagingBuffer.bufferMemory, 0, imageSize, 0, &data);
-        memcpy(data, pixels, static_cast<size_t>(imageSize));
-        vkUnmapMemory(renderInstance->device, stagingBuffer.bufferMemory);
-
-        // Free our CPU-side loaded texture
-        stbi_image_free(pixels);
-
-        // Create the GPU-side image
-        textureImage = std::make_unique<CombinedImage>(renderInstance, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), VK_FORMAT_R8G8B8A8_SRGB,
-                                                       VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-        // Copy staging buffer to our image and prepare it for shader reads
-        transitionImageLayout(*renderInstance, textureImage->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        copyBufferToImage(*renderInstance, stagingBuffer.buffer, textureImage->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight));
-        transitionImageLayout(*renderInstance, textureImage->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-        // Create the texture image view
-        textureImageView = createImageView(renderInstance->device, textureImage->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
+        depthImage = std::make_unique<CombinedImage>(renderInstance, renderInstance->renderImageExtent.width, renderInstance->renderImageExtent.height, VK_FORMAT_D32_SFLOAT,
+                                                     VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
     }
 
     // Create a texture sampler (not per image)
@@ -464,7 +417,6 @@ private:
 
         VK_ERR(vkCreateSampler(renderInstance->device, &samplerInfo, nullptr, &textureSampler), "failed to create texture sampler!");
     }
-    */
 
     void createUniformBuffers() {
         VkDeviceSize bufferSize = sizeof(ViewProjMatrices);
@@ -480,7 +432,6 @@ private:
 
     void createDescriptorSets() {
         // Create the descriptor pool
-        /* TODO: Bring back for texture materials
         std::array<VkDescriptorPoolSize, 2> poolSizes {{
             {
                 .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -488,13 +439,6 @@ private:
             },
             {
                 .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
-            }
-        }};
-        */
-        std::array<VkDescriptorPoolSize, 1> poolSizes {{
-            {
-                .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                 .descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
             }
         }};
@@ -528,10 +472,9 @@ private:
                 .range = sizeof(ViewProjMatrices),
             };
 
-            /* TODO: Bring back for texture materials
             VkDescriptorImageInfo imageInfo {
                 .sampler = textureSampler,
-                .imageView = textureImageView,
+                .imageView = cubemap->imageView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             };
 
@@ -553,19 +496,6 @@ private:
                     .descriptorCount = 1,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .pImageInfo = &imageInfo,
-                }
-            }};
-            */
-
-            std::array<VkWriteDescriptorSet, 1> descriptorWrites {{
-                {
-                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    .dstSet = descriptorSets[i],
-                    .dstBinding = 0,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .pBufferInfo = &bufferInfo,
                 }
             }};
 
@@ -863,10 +793,7 @@ public:
 
         vkDestroyDescriptorPool(renderInstance->device, descriptorPool, nullptr);
 
-        /* TODO: Bring back for texture materials
         vkDestroySampler(renderInstance->device, textureSampler, nullptr);
-        vkDestroyImageView(renderInstance->device, textureImageView, nullptr);
-        */
 
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(renderInstance->device, imageAvailableSemaphores[i], nullptr);
@@ -882,8 +809,6 @@ public:
 
 private:
     void cleanupFramebuffers() {
-        vkDestroyImageView(renderInstance->device, depthImageView, nullptr);
-
         for (VkFramebuffer framebuffer : renderTargetFramebuffers) {
             vkDestroyFramebuffer(renderInstance->device, framebuffer, nullptr);
         }

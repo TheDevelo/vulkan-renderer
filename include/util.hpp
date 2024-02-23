@@ -40,3 +40,5 @@ inline std::string string_format(const std::string& format, Args... args) {
     // Remove last char as it is '\0'
     return std::string(buf.get(), buf.get() + size - 1);
 }
+
+void convertRGBEtoRGB(uint8_t* src, float* dst, uint32_t pixelCount);
