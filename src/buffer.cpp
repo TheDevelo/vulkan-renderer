@@ -286,7 +286,7 @@ std::unique_ptr<CombinedImage> loadImage(std::shared_ptr<RenderInstance>& render
     VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
 
     transitionImageLayout(commandBuffer, image->image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    copyBufferToImage(commandBuffer, stagingBuffer.buffer, image->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), 6);
+    copyBufferToImage(commandBuffer, stagingBuffer.buffer, image->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), 1);
     transitionImageLayout(commandBuffer, image->image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     endSingleUseCBuffer(*renderInstance, commandBuffer);

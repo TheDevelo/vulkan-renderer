@@ -87,6 +87,7 @@ struct Node {
     // Attached mesh/cameras
     std::optional<uint32_t> meshIndex;
     std::optional<uint32_t> cameraIndex;
+    std::optional<uint32_t> environmentIndex;
 
     // Bounding box used for BVH culling. Will be None if the node is dynamic (it or a child is animated)
     std::optional<AxisAlignedBoundingBox> bbox;
@@ -101,6 +102,8 @@ struct Mesh {
     uint32_t vertexCount;
     uint32_t vertexBufferIndex;
     uint32_t vertexBufferOffset;
+
+    uint32_t materialIndex;
 
     // Bounding box data
     AxisAlignedBoundingBox bbox;
@@ -140,6 +143,28 @@ struct Driver {
     uint32_t lastKeyIndex;
 };
 
+enum class MaterialType {
+    SIMPLE,
+    ENVIRONMENT,
+    MIRROR,
+};
+
+struct Material {
+    std::string name;
+
+    // Normal and displacement maps. nullptr means unspecified
+    std::unique_ptr<CombinedImage> normalMap;
+    std::unique_ptr<CombinedImage> displacementMap;
+
+    MaterialType type;
+};
+
+struct Environment {
+    std::string name;
+
+    std::unique_ptr<CombinedCubemap> radiance;
+};
+
 struct UserCamera {
     float theta; // Measures Z angle, ranges from -PI/2 to PI/2
     float phi; // Measures XY angle
@@ -176,6 +201,7 @@ public:
     // Cameras are public so that the "outside" can change the selected camera
     uint32_t selectedCamera = 0;
     std::vector<Camera> cameras;
+    std::vector<Environment> environments; // TODO: Put back in private once I'm done setting up descriptors properly
 
     float minAnimTime;
     float maxAnimTime;
@@ -199,6 +225,7 @@ private:
     std::vector<Node> nodes;
     std::vector<Mesh> meshes;
     std::vector<Driver> drivers;
+    std::vector<Material> materials;
     std::vector<CombinedBuffer> buffers;
 
     // We store a separate struct for the culling camera, which simplifies culling logic & makes debug mode possible

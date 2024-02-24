@@ -35,10 +35,12 @@ public:
     void run() {
         // Init our render instance
         initRenderInstance();
-        initVulkan();
 
         // Load our scene
         scene = Scene(renderInstance, options::getScenePath());
+
+        // Init the rest of our Vulkan primitives
+        initVulkan();
 
         mainLoop();
     }
@@ -54,7 +56,6 @@ private:
 
     std::vector<VkFramebuffer> renderTargetFramebuffers;
 
-    std::unique_ptr<CombinedCubemap> cubemap;
     VkSampler textureSampler;
 
     std::unique_ptr<CombinedImage> depthImage;
@@ -87,7 +88,6 @@ private:
         createDepthImage();
         createFramebuffers();
 
-        cubemap = loadCubemap(renderInstance, "testcubemap.png");
         createTextureSampler();
 
         createUniformBuffers();
@@ -474,7 +474,7 @@ private:
 
             VkDescriptorImageInfo imageInfo {
                 .sampler = textureSampler,
-                .imageView = cubemap->imageView,
+                .imageView = scene.environments[0].radiance->imageView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             };
 

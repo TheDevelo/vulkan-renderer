@@ -1,5 +1,6 @@
 #pragma once
 #include <vulkan/vulkan.h>
+#include <vulkan/vk_enum_string_helper.h>
 
 #include <memory>
 #include <string>
@@ -8,7 +9,7 @@
 #include "instance.hpp"
 
 // Error handling macros
-#define VK_ERR(res, msg) if (res != VK_SUCCESS) { throw std::runtime_error(msg); }
+#define VK_ERR(fn, msg) { VkResult res = fn; if (res != VK_SUCCESS) { throw std::runtime_error(string_format("%s - %s", msg, string_VkResult(res))); } }
 #define PANIC(msg) throw std::runtime_error(msg)
 
 VkImageView createImageView(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);

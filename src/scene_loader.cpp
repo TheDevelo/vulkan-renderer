@@ -64,6 +64,10 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     std::map<uint32_t, uint32_t> meshIdMap;
     std::map<uint32_t, uint32_t> cameraIdMap;
     std::map<uint32_t, uint32_t> driverIdMap;
+    std::map<uint32_t, uint32_t> materialIdMap;
+    std::map<uint32_t, uint32_t> environmentIdMap;
+    materialIdMap.insert_or_assign(0, 0); // Insert a dummy element to reserve for the default material
+
     for (auto e = sceneArr.begin() + 1; e != sceneArr.end(); e++) {
         uint32_t s72Id = std::distance(sceneArr.begin(), e);
         if (!e->is_obj()) {
@@ -102,6 +106,14 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             uint32_t driverId = driverIdMap.size();
             driverIdMap.insert_or_assign(s72Id, driverId);
         }
+        else if (type == "MATERIAL") {
+            uint32_t materialId = materialIdMap.size();
+            materialIdMap.insert_or_assign(s72Id, materialId);
+        }
+        else if (type == "ENVIRONMENT") {
+            uint32_t environmentId = environmentIdMap.size();
+            environmentIdMap.insert_or_assign(s72Id, environmentId);
+        }
         else {
             PANIC("Scene loading error: s72 object has an invalid type");
         }
@@ -117,6 +129,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     }
 
     // Iterate through all the nodes and construct their Node representation
+    nodes.reserve(nodeIdMap.size());
     for (auto idPair : nodeIdMap) {
         uint32_t s72Id = idPair.first;
         json::object const& nodeObj = sceneArr[s72Id].as_obj();
@@ -153,7 +166,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         };
         node.calculateTransforms();
 
-        // Add mesh and camera indices
+        // Add mesh, camera, and environment indices
         if (nodeObj.contains("mesh")) {
             uint32_t jsonId = nodeObj.at("mesh").as_num();
             node.meshIndex = meshIdMap.at(jsonId);
@@ -162,6 +175,11 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             uint32_t jsonId = nodeObj.at("camera").as_num();
             node.cameraIndex = cameraIdMap.at(jsonId);
         }
+        if (nodeObj.contains("environment")) {
+            uint32_t jsonId = nodeObj.at("environment").as_num();
+            node.environmentIndex = cameraIdMap.at(jsonId);
+        }
+
         // Add child nodes
         if (nodeObj.contains("children") && nodeObj.at("children").is_arr()) {
             for (json::Value const& e : nodeObj.at("children").as_arr()) {
@@ -195,6 +213,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     // Now, create the mesh objects and copy into the CPU buffer
     uint32_t curBufferCount = 0;
     std::unique_ptr<Vertex[]> buffer(new Vertex[totalBufferCount]);
+    meshes.reserve(meshIdMap.size());
     for (auto idPair : meshIdMap) {
         uint32_t s72Id = idPair.first;
         json::object const& meshObj = sceneArr[s72Id].as_obj();
@@ -230,6 +249,16 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             addVertToBBox(buffer[i].pos, mesh.bbox);
         }
 
+        // Add the material
+        if (meshObj.contains("material")) {
+            uint32_t jsonId = meshObj.at("material").as_num();
+            mesh.materialIndex = materialIdMap.at(jsonId);
+        }
+        else {
+            // Material Index of 0 = default material
+            mesh.materialIndex = 0;
+        }
+
         meshes.push_back(mesh);
         curBufferCount += mesh.vertexCount;
     }
@@ -238,6 +267,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     vertexBufferFromBuffer(renderInstance, buffer.get(), totalBufferCount * sizeof(Vertex));
 
     // Iterate through all the cameras and construct their Camera representation
+    cameras.reserve(cameraIdMap.size());
     for (auto idPair : cameraIdMap) {
         uint32_t s72Id = idPair.first;
         json::object const& cameraObj = sceneArr[s72Id].as_obj();
@@ -267,6 +297,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     std::set<uint32_t> dynamicNodes;
     minAnimTime = std::numeric_limits<float>::max();
     maxAnimTime = std::numeric_limits<float>::min();
+    drivers.reserve(driverIdMap.size());
     for (auto idPair : driverIdMap) {
         uint32_t s72Id = idPair.first;
         json::object const& driverObj = sceneArr[s72Id].as_obj();
@@ -362,6 +393,89 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         maxAnimTime = std::max(driver.keyTimes[driver.keyTimes.size() - 1], maxAnimTime);
         dynamicNodes.insert(driver.targetNode);
         drivers.push_back(driver);
+    }
+
+    // Add the default material to the material list. Then erase the default material ID entry so we don't try to load it.
+    materials.reserve(materialIdMap.size());
+    materials.push_back(Material {
+        .name = "Default Material",
+        .type = MaterialType::SIMPLE,
+    });
+    materialIdMap.erase(0);
+
+    // Iterate through all the materials and construct their Material representation
+    for (auto idPair : materialIdMap) {
+        uint32_t s72Id = idPair.first;
+        json::object const& materialObj = sceneArr[s72Id].as_obj();
+
+        Material material {
+            .name = materialObj.at("name").as_str(),
+            .normalMap = nullptr,
+            .displacementMap = nullptr,
+        };
+
+        // Load the normal & displacement maps
+        if (materialObj.contains("normalMap") && materialObj.at("normalMap").is_obj()) {
+            json::object const& normalMapObj = materialObj.at("normalMap").as_obj();
+            if (!normalMapObj.contains("src") || !normalMapObj.at("src").is_str()) {
+                PANIC("Scene loading error: normal map does not have a source");
+            }
+            // TODO: Verify that the texture is actually a 2D RGB texture
+
+            std::filesystem::path filePath = directory / normalMapObj.at("src").as_str();
+            material.normalMap = loadImage(renderInstance, filePath.string());
+        }
+        if (materialObj.contains("displacementMap") && materialObj.at("displacementMap").is_obj()) {
+            json::object const& dispMapObj = materialObj.at("displacementMap").as_obj();
+            if (!dispMapObj.contains("src") || !dispMapObj.at("src").is_str()) {
+                PANIC("Scene loading error: displacement map does not have a source");
+            }
+            // TODO: Verify that the texture is actually a 2D RGB texture
+
+            std::filesystem::path filePath = directory / dispMapObj.at("src").as_str();
+            material.displacementMap = loadImage(renderInstance, filePath.string());
+        }
+
+        if (materialObj.contains("simple")) {
+            material.type = MaterialType::SIMPLE;
+        }
+        else if (materialObj.contains("environment")) {
+            material.type = MaterialType::ENVIRONMENT;
+        }
+        else if (materialObj.contains("mirror")) {
+            material.type = MaterialType::MIRROR;
+        }
+        else {
+            PANIC("Scene loading error: material does not contain a valid type");
+        }
+
+        materials.push_back(std::move(material));
+    }
+
+    // Iterate through all the materials and construct their Material representation
+    environments.reserve(environmentIdMap.size());
+    for (auto idPair : environmentIdMap) {
+        uint32_t s72Id = idPair.first;
+        json::object const& envObj = sceneArr[s72Id].as_obj();
+
+        Environment env {
+            .name = envObj.at("name").as_str(),
+        };
+
+        // Load the radiance map
+        if (!envObj.contains("radiance") && !envObj.at("radiance").is_obj()) {
+            PANIC("Scene loading error: environment does not contain a radiance map");
+        }
+        json::object const& radianceObj = envObj.at("radiance").as_obj();
+        if (!radianceObj.contains("src") || !radianceObj.at("src").is_str()) {
+            PANIC("Scene loading error: environment radiance does not have a source");
+        }
+        // TODO: Verify that the texture is actually a cube RGBE texture
+
+        std::filesystem::path filePath = directory / radianceObj.at("src").as_str();
+        env.radiance = loadCubemap(renderInstance, filePath.string());
+
+        environments.push_back(std::move(env));
     }
 
     // Set the default camera
