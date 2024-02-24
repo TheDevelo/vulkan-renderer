@@ -92,6 +92,7 @@ void createImage(RenderInstance const& renderInstance, uint32_t width, uint32_t 
 }
 
 CombinedImage::~CombinedImage() {
+    vkDestroyImageView(renderInstance->device, imageView, nullptr);
     vkDestroyImage(renderInstance->device, image, nullptr);
     vkFreeMemory(renderInstance->device, imageMemory, nullptr);
 }
@@ -100,6 +101,7 @@ CombinedCubemap::CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstance
                                  VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImageAspectFlags aspectFlags) : renderInstance(renderInstanceIn) {
     VkImageCreateInfo imageInfo {
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
         .imageType = VK_IMAGE_TYPE_2D,
         .format = format,
         .extent = { width, height, 1 },
@@ -170,7 +172,7 @@ void copyBuffers(VkCommandBuffer commandBuffer, BufferCopy* bufferCopyInfos, uin
     }
 }
 
-void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
+void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t layers) {
     VkImageMemoryBarrier barrier {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .oldLayout = oldLayout,
@@ -183,7 +185,7 @@ void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkForma
             .baseMipLevel = 0,
             .levelCount = 1,
             .baseArrayLayer = 0,
-            .layerCount = 1,
+            .layerCount = layers,
         },
     };
 
@@ -305,7 +307,7 @@ std::unique_ptr<CombinedCubemap> loadCubemap(std::shared_ptr<RenderInstance>& re
 
     // Convert image from RGBE format
     std::vector<float> rgbFloats;
-    rgbFloats.resize(textureWidth * textureHeight * 6 * 3);
+    rgbFloats.resize(textureWidth * textureHeight * 6 * 4);
     convertRGBEtoRGB(pixels, rgbFloats.data(), textureWidth * textureHeight * 6);
 
     // Create a staging buffer for our image
@@ -321,15 +323,15 @@ std::unique_ptr<CombinedCubemap> loadCubemap(std::shared_ptr<RenderInstance>& re
     stbi_image_free(pixels);
 
     // Create the GPU-side image
-    std::unique_ptr<CombinedCubemap> cubemap = std::make_unique<CombinedCubemap>(renderInstance, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), VK_FORMAT_R32G32B32_SFLOAT,
+    std::unique_ptr<CombinedCubemap> cubemap = std::make_unique<CombinedCubemap>(renderInstance, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), VK_FORMAT_R32G32B32A32_SFLOAT,
                                                                                  VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 
     // Copy staging buffer to our image and prepare it for shader reads
     VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
 
-    transitionImageLayout(commandBuffer, cubemap->image, VK_FORMAT_R32G32B32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    transitionImageLayout(commandBuffer, cubemap->image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6);
     copyBufferToImage(commandBuffer, stagingBuffer.buffer, cubemap->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), 6);
-    transitionImageLayout(commandBuffer, cubemap->image, VK_FORMAT_R32G32B32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    transitionImageLayout(commandBuffer, cubemap->image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 6);
 
     endSingleUseCBuffer(*renderInstance, commandBuffer);
 

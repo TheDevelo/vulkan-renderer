@@ -16,19 +16,12 @@
 #include "buffer.hpp"
 #include "instance.hpp"
 #include "linear.hpp"
+#include "materials.hpp"
 #include "options.hpp"
 #include "scene.hpp"
 #include "util.hpp"
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
-
-// Shader arrays
-const uint32_t vertShaderArray[] =
-#include "shaders/shader.vert.inl"
-;
-const uint32_t fragShaderArray[] =
-#include "shaders/shader.frag.inl"
-;
 
 class VKRendererApp {
 public:
@@ -50,9 +43,7 @@ private:
     Scene scene;
 
     VkRenderPass renderPass;
-    VkDescriptorSetLayout descriptorSetLayout;
-    VkPipelineLayout pipelineLayout;
-    VkPipeline pipeline;
+    std::unique_ptr<MaterialPipelines> materialPipelines;
 
     std::vector<VkFramebuffer> renderTargetFramebuffers;
 
@@ -80,8 +71,7 @@ private:
 
     void initVulkan() {
         createRenderPass();
-        createDescriptorSetLayout();
-        createGraphicsPipeline();
+        materialPipelines = std::make_unique<MaterialPipelines>(renderInstance, renderPass);
 
         createCommandBuffers();
 
@@ -171,184 +161,6 @@ private:
         };
 
         VK_ERR(vkCreateRenderPass(renderInstance->device, &renderPassInfo, nullptr, &renderPass), "failed to create render pass!");
-    }
-
-    void createDescriptorSetLayout() {
-        VkDescriptorSetLayoutBinding mvpLayoutBinding {
-            .binding = 0,
-            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-        };
-        VkDescriptorSetLayoutBinding samplerLayoutBinding {
-            .binding = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = nullptr,
-        };
-
-        std::array<VkDescriptorSetLayoutBinding, 2> bindings = { mvpLayoutBinding, samplerLayoutBinding };
-
-        VkDescriptorSetLayoutCreateInfo layoutInfo {
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .bindingCount = static_cast<uint32_t>(bindings.size()),
-            .pBindings = bindings.data(),
-        };
-
-        VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &layoutInfo, nullptr, &descriptorSetLayout), "failed to create descriptor set layout!");
-    }
-
-    // Creates the basic graphics pipeline for our renderer
-    void createGraphicsPipeline() {
-        // Load in the vertex and fragment shaders
-        VkShaderModule vertShaderModule = createShaderModule(vertShaderArray, sizeof(vertShaderArray));
-        VkShaderModule fragShaderModule = createShaderModule(fragShaderArray, sizeof(fragShaderArray));
-
-        // Create the shader stages for our pipeline
-        VkPipelineShaderStageCreateInfo vertShaderStageInfo {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            .stage = VK_SHADER_STAGE_VERTEX_BIT,
-            .module = vertShaderModule,
-            .pName = "main",
-        };
-        VkPipelineShaderStageCreateInfo fragShaderStageInfo {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-            .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .module = fragShaderModule,
-            .pName = "main",
-        };
-        VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
-
-        // Create info used in our render pipeline about the various operations
-        // Dynamic states deal with what we can change after pipeline creation.
-        std::vector<VkDynamicState> dynamicStates = {
-            VK_DYNAMIC_STATE_VIEWPORT,
-            VK_DYNAMIC_STATE_SCISSOR,
-        };
-        VkPipelineDynamicStateCreateInfo dynamicStateInfo {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-            .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
-            .pDynamicStates = dynamicStates.data(),
-        };
-        // Vertex input describes how vertex data will be passed into our shader
-        auto bindingDescription = Vertex::getBindingDescription();
-        auto attributeDescriptions = Vertex::getAttributeDescriptions();
-        VkPipelineVertexInputStateCreateInfo vertexInputInfo {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-            .vertexBindingDescriptionCount = 1,
-            .pVertexBindingDescriptions = &bindingDescription,
-            .vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size()),
-            .pVertexAttributeDescriptions = attributeDescriptions.data(),
-        };
-        // Input assembly describes what primitives we make from our vertex data
-        VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-            .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-            .primitiveRestartEnable = VK_FALSE,
-        };
-        // Viewport and scissor describe what regions of our scene and screen we should render
-        VkPipelineViewportStateCreateInfo viewportStateInfo {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-            .viewportCount = 1,
-            .scissorCount = 1,
-        };
-        // Rasterizer determines how we convert from primitives to fragments
-        VkPipelineRasterizationStateCreateInfo rasterizerStateInfo {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-            .depthClampEnable = VK_FALSE,
-            .rasterizerDiscardEnable = VK_FALSE,
-            .polygonMode = VK_POLYGON_MODE_FILL,
-            .cullMode = VK_CULL_MODE_BACK_BIT,
-            .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-            .depthBiasEnable = VK_FALSE,
-            .lineWidth = 1.0f,
-        };
-        // Multisampling determines anti-aliasing configuration
-        VkPipelineMultisampleStateCreateInfo multisamplingInfo {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-            .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-            .sampleShadingEnable = VK_FALSE,
-        };
-        // Color blending determines how we mix the pixels onto the framebuffer
-        // The attachment is info per framebuffer, while create info is global
-        VkPipelineColorBlendAttachmentState colorBlendAttachment {
-            .blendEnable = VK_FALSE,
-            .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-        };
-        VkPipelineColorBlendStateCreateInfo colorBlendInfo {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-            .logicOpEnable = VK_FALSE,
-            .attachmentCount = 1,
-            .pAttachments = &colorBlendAttachment,
-        };
-        // Depth stencil determines how we use the depth buffer and stencil buffer
-        VkPipelineDepthStencilStateCreateInfo depthStencilInfo {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-            .depthTestEnable = VK_TRUE,
-            .depthWriteEnable = VK_TRUE,
-            .depthCompareOp = VK_COMPARE_OP_LESS,
-            .depthBoundsTestEnable = VK_FALSE,
-            .stencilTestEnable = VK_FALSE,
-        };
-        // Push constants are small amounts of data we can directly upload through the command buffer
-        // They will be used to upload model transforms for each object
-        VkPushConstantRange pushConstantInfo {
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-            .offset = 0,
-            .size = sizeof(Mat4<float>),
-        };
-        // Pipeline layout determines which uniforms are available to the shaders
-        VkPipelineLayoutCreateInfo pipelineLayoutInfo {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount = 1,
-            .pSetLayouts = &descriptorSetLayout,
-            .pushConstantRangeCount = 1,
-            .pPushConstantRanges = &pushConstantInfo,
-        };
-
-        VK_ERR(vkCreatePipelineLayout(renderInstance->device, &pipelineLayoutInfo, nullptr, &pipelineLayout), "failed to create pipeline layout!");
-
-        // Finally create the render pipeline
-        VkGraphicsPipelineCreateInfo renderPipelineInfo {
-            .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-            .stageCount = 2,
-            .pStages = shaderStages,
-            .pVertexInputState = &vertexInputInfo,
-            .pInputAssemblyState = &inputAssemblyInfo,
-            .pViewportState = &viewportStateInfo,
-            .pRasterizationState = &rasterizerStateInfo,
-            .pMultisampleState = &multisamplingInfo,
-            .pDepthStencilState = &depthStencilInfo,
-            .pColorBlendState = &colorBlendInfo,
-            .pDynamicState = &dynamicStateInfo,
-            .layout = pipelineLayout,
-            .renderPass = renderPass,
-            .subpass = 0,
-            .basePipelineHandle = VK_NULL_HANDLE,
-            .basePipelineIndex = -1,
-        };
-
-        // This call takes in multiple pipelines to create. I'm guessing real apps need a bunch of pipelines, so they made a call to batch compile them.
-        // In fact, this is probably where "shader compilation" and "shader caches" come in for games I play. Neat!
-        VK_ERR(vkCreateGraphicsPipelines(renderInstance->device, VK_NULL_HANDLE, 1, &renderPipelineInfo, nullptr, &pipeline), "failed to create graphics pipeline!");
-
-        // Clean up our shader modules now that we are finished with them (the pipeline keeps its own copy)
-        vkDestroyShaderModule(renderInstance->device, vertShaderModule, nullptr);
-        vkDestroyShaderModule(renderInstance->device, fragShaderModule, nullptr);
-    }
-
-    VkShaderModule createShaderModule(const uint32_t* spirvCode, size_t spirvSize) {
-        VkShaderModuleCreateInfo moduleCreateInfo {
-            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-            .codeSize = spirvSize,
-            .pCode = spirvCode,
-        };
-
-        VkShaderModule shaderModule;
-        VK_ERR(vkCreateShaderModule(renderInstance->device, &moduleCreateInfo, nullptr, &shaderModule), "failed to create shader module!");
-
-        return shaderModule;
     }
 
     void createFramebuffers() {
@@ -453,7 +265,7 @@ private:
         VK_ERR(vkCreateDescriptorPool(renderInstance->device, &poolInfo, nullptr, &descriptorPool), "failed to create descriptor pool!");
 
         // Allocate the descriptor sets
-        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, materialPipelines->viewProjLayout);
         VkDescriptorSetAllocateInfo allocInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = descriptorPool,
@@ -472,6 +284,7 @@ private:
                 .range = sizeof(ViewProjMatrices),
             };
 
+            /*
             VkDescriptorImageInfo imageInfo {
                 .sampler = textureSampler,
                 .imageView = scene.environments[0].radiance->imageView,
@@ -496,6 +309,18 @@ private:
                     .descriptorCount = 1,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .pImageInfo = &imageInfo,
+                }
+            }};
+            */
+            std::array<VkWriteDescriptorSet, 1> descriptorWrites {{
+                {
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = descriptorSets[i],
+                    .dstBinding = 0,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .pBufferInfo = &bufferInfo,
                 }
             }};
 
@@ -730,7 +555,7 @@ private:
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
         // Draw our render pipeline
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialPipelines->simplePipeline);
 
         // Calculate our viewport to add letter/pillarboxing, so that the aspect ratio of the rendered region matches our camera's
         float cameraAspect;
@@ -763,12 +588,12 @@ private:
             .extent = renderInstance->renderImageExtent,
         };
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialPipelines->simplePipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
         // Draw the scene
         SceneRenderInfo sceneRenderInfo {
             .commandBuffer = commandBuffer,
-            .pipelineLayout = pipelineLayout,
+            .pipelineLayout = materialPipelines->simplePipelineLayout,
         };
         scene.renderScene(sceneRenderInfo);
 
@@ -801,9 +626,6 @@ public:
             vkDestroyFence(renderInstance->device, inFlightFences[i], nullptr);
         }
 
-        vkDestroyPipeline(renderInstance->device, pipeline, nullptr);
-        vkDestroyPipelineLayout(renderInstance->device, pipelineLayout, nullptr);
-        vkDestroyDescriptorSetLayout(renderInstance->device, descriptorSetLayout, nullptr);
         vkDestroyRenderPass(renderInstance->device, renderPass, nullptr);
     }
 

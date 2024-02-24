@@ -86,11 +86,13 @@ std::vector<char> readFile(const std::string& filename) {
     return buffer;
 }
 
+// NOTE: I'm assuming the destination RGB has an alpha channel, since R32G32B32_SFLOAT seems like it is not commonly supported
 void convertRGBEtoRGB(uint8_t* src, float* dst, uint32_t pixelCount) {
     for (uint32_t pixel = 0; pixel < pixelCount; pixel++) {
         uint8_t* srcPixel = src + pixel * 4;
-        float* dstPixel = dst + pixel * 3;
+        float* dstPixel = dst + pixel * 4;
 
+        dstPixel[3] = 1.0f;
         if (srcPixel[0] == 0 && srcPixel[1] == 0 && srcPixel[2] == 0 && srcPixel[3] == 0) {
             dstPixel[0] = 0.0f;
             dstPixel[1] = 0.0f;

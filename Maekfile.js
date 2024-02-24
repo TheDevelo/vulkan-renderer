@@ -24,7 +24,8 @@ const maek = init_maek();
 // Build our glsl shaders first
 const shaders = [
 	maek.GLSLC('shaders/shader.vert'),
-	maek.GLSLC('shaders/shader.frag'),
+	maek.GLSLC('shaders/simple.frag'),
+	maek.GLSLC('shaders/environment.frag'),
 ];
 
 //set default targets to build (can be overridden by command line options):
@@ -44,10 +45,11 @@ maek.options.CPPFlags.push(
 //returns objFile: objFileBase + a platform-dependant suffix ('.o' or '.obj')
 
 const VKRenderer_objs = [
-	maek.CPP('src/main.cpp', undefined, { depends: [...shaders] }), // Includes our shaders, so depends on the shader tasks
+	maek.CPP('src/main.cpp'),
 	maek.CPP('src/util.cpp'),
 	maek.CPP('src/buffer.cpp'),
 	maek.CPP('src/json.cpp'),
+	maek.CPP('src/materials.cpp', undefined, { depends: [...shaders] }), // Includes our shaders, so depends on the shader tasks
 	maek.CPP('src/options.cpp'),
 
 	maek.CPP('src/instance.cpp'),

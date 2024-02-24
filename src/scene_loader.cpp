@@ -8,6 +8,7 @@
 
 #include "instance.hpp"
 #include "json.hpp"
+#include "materials.hpp"
 #include "options.hpp"
 #include "scene.hpp"
 #include "util.hpp"
