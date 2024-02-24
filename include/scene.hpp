@@ -9,6 +9,7 @@
 #include "buffer.hpp"
 #include "instance.hpp"
 #include "linear.hpp"
+#include "materials.hpp"
 
 // View and projection matrices for the vertex shader
 struct ViewProjMatrices {
@@ -19,7 +20,8 @@ struct ViewProjMatrices {
 // Data required for rendering, but not managed by the scene
 struct SceneRenderInfo {
     VkCommandBuffer commandBuffer;
-    VkPipelineLayout pipelineLayout;
+    MaterialPipelines const& pipelines;
+    VkDescriptorSet cameraDescriptor;
 };
 
 // Container for a local-space axis-aligned bounding box. Represented by the corners with minimal XYZ and maximal XYZ
@@ -121,6 +123,8 @@ struct Environment {
     std::string name;
 
     std::unique_ptr<CombinedCubemap> radiance;
+    // Descriptor Set for the environment
+    VkDescriptorSet descriptorSet;
 };
 
 struct UserCamera {
@@ -144,6 +148,12 @@ enum class CullingMode {
     BVH,
 };
 
+struct MaterialCounts {
+    uint32_t simple;
+    uint32_t environment;
+    uint32_t mirror;
+};
+
 class Scene {
 public:
     Scene() = default;
@@ -159,7 +169,10 @@ public:
     // Cameras are public so that the "outside" can change the selected camera
     uint32_t selectedCamera = 0;
     std::vector<Camera> cameras;
-    std::vector<Environment> environments; // TODO: Put back in private once I'm done setting up descriptors properly
+
+    // Material and environment info used to create the descriptor pool, allocate descriptors, and update them
+    MaterialCounts materialCounts;
+    std::vector<Environment> environments;
 
     float minAnimTime;
     float maxAnimTime;

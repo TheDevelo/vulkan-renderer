@@ -251,7 +251,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         }
 
         // Add the material
-        if (meshObj.contains("material")) {
+        if (meshObj.contains("material") && meshObj.at("material").is_num()) {
             uint32_t jsonId = meshObj.at("material").as_num();
             mesh.materialIndex = materialIdMap.at(jsonId);
         }

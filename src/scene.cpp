@@ -65,6 +65,35 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
         return;
     }
 
+    // Check we have a valid material
+    if (mesh.materialIndex >= materials.size()) {
+        PANIC(string_format("tried to render mesh %u with material %u out of range!", meshId, mesh.materialIndex));
+    }
+    Material& material = materials[mesh.materialIndex];
+
+    // Bind the appropriate pipeline and descriptors
+    VkPipelineLayout layout;
+    if (material.type == MaterialType::SIMPLE) {
+        layout = sceneRenderInfo.pipelines.simplePipelineLayout;
+        vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.simplePipeline);
+    }
+    else if (material.type == MaterialType::ENVIRONMENT) {
+        layout = sceneRenderInfo.pipelines.envMirrorPipelineLayout;
+        vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.environmentPipeline);
+    }
+    else if (material.type == MaterialType::MIRROR) {
+        layout = sceneRenderInfo.pipelines.envMirrorPipelineLayout;
+        vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.mirrorPipeline);
+    }
+    else {
+        PANIC("mesh contains invalid material!");
+    }
+
+    vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &sceneRenderInfo.cameraDescriptor, 0, nullptr);
+    if (material.type != MaterialType::SIMPLE) {
+        vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &environments[0].descriptorSet, 0, nullptr);
+    }
+
     if (mesh.vertexBufferIndex >= buffers.size()) {
         PANIC(string_format("mesh %s includes vertex buffer %u out of range!", mesh.name.c_str(), mesh.vertexBufferIndex));
     }
@@ -72,7 +101,7 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
 
     VkDeviceSize offsets[] = {mesh.vertexBufferOffset};
     vkCmdBindVertexBuffers(sceneRenderInfo.commandBuffer, 0, 1, &meshVertBuffer, offsets);
-    vkCmdPushConstants(sceneRenderInfo.commandBuffer, sceneRenderInfo.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4<float>), &worldTransform);
+    vkCmdPushConstants(sceneRenderInfo.commandBuffer, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4<float>), &worldTransform);
 
     vkCmdDraw(sceneRenderInfo.commandBuffer, mesh.vertexCount, 1, 0, 0);
 }

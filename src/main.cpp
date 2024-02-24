@@ -243,6 +243,7 @@ private:
     }
 
     void createDescriptorSets() {
+        uint32_t environmentDescCount = scene.environments.size();
         // Create the descriptor pool
         std::array<VkDescriptorPoolSize, 2> poolSizes {{
             {
@@ -251,13 +252,13 @@ private:
             },
             {
                 .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+                .descriptorCount = environmentDescCount,
             }
         }};
 
         VkDescriptorPoolCreateInfo poolInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+            .maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) + environmentDescCount,
             .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
             .pPoolSizes = poolSizes.data(),
         };
@@ -276,6 +277,18 @@ private:
         descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
         VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &allocInfo, descriptorSets.data()), "failed to allocate descriptor sets!");
 
+        // Allocate the environment descriptor sets
+        std::vector<VkDescriptorSetLayout> envLayouts(MAX_FRAMES_IN_FLIGHT, materialPipelines->environmentLayout);
+        VkDescriptorSetAllocateInfo envAllocInfo {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = descriptorPool,
+            .descriptorSetCount = environmentDescCount,
+            .pSetLayouts = envLayouts.data(),
+        };
+
+        std::vector<VkDescriptorSet> envDescriptorSets(environmentDescCount);
+        VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &envAllocInfo, envDescriptorSets.data()), "failed to allocate descriptor sets!");
+
         // Point our descriptor sets at the underlying uniform buffers
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             VkDescriptorBufferInfo bufferInfo {
@@ -284,34 +297,6 @@ private:
                 .range = sizeof(ViewProjMatrices),
             };
 
-            /*
-            VkDescriptorImageInfo imageInfo {
-                .sampler = textureSampler,
-                .imageView = scene.environments[0].radiance->imageView,
-                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            };
-
-            std::array<VkWriteDescriptorSet, 2> descriptorWrites {{
-                {
-                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    .dstSet = descriptorSets[i],
-                    .dstBinding = 0,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .pBufferInfo = &bufferInfo,
-                },
-                {
-                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    .dstSet = descriptorSets[i],
-                    .dstBinding = 1,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                    .pImageInfo = &imageInfo,
-                }
-            }};
-            */
             std::array<VkWriteDescriptorSet, 1> descriptorWrites {{
                 {
                     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -325,6 +310,29 @@ private:
             }};
 
             vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+        }
+
+        for (size_t i = 0; i < environmentDescCount; i++) {
+            VkDescriptorImageInfo imageInfo {
+                .sampler = textureSampler,
+                .imageView = scene.environments[i].radiance->imageView,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            };
+
+            std::array<VkWriteDescriptorSet, 1> descriptorWrites {{
+                {
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = envDescriptorSets[i],
+                    .dstBinding = 0,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &imageInfo,
+                }
+            }};
+
+            vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+            scene.environments[i].descriptorSet = envDescriptorSets[i];
         }
     }
 
@@ -554,9 +562,6 @@ private:
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-        // Draw our render pipeline
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialPipelines->simplePipeline);
-
         // Calculate our viewport to add letter/pillarboxing, so that the aspect ratio of the rendered region matches our camera's
         float cameraAspect;
         if (scene.useUserCamera) {
@@ -588,12 +593,12 @@ private:
             .extent = renderInstance->renderImageExtent,
         };
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, materialPipelines->simplePipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
         // Draw the scene
         SceneRenderInfo sceneRenderInfo {
             .commandBuffer = commandBuffer,
-            .pipelineLayout = materialPipelines->simplePipelineLayout,
+            .pipelines = *materialPipelines,
+            .cameraDescriptor = descriptorSets[currentFrame]
         };
         scene.renderScene(sceneRenderInfo);
 
