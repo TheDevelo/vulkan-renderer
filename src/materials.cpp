@@ -16,6 +16,9 @@ const uint32_t simpleFragShaderArray[] =
 const uint32_t environmentFragShaderArray[] =
 #include "shaders/environment.frag.inl"
 ;
+const uint32_t mirrorFragShaderArray[] =
+#include "shaders/mirror.frag.inl"
+;
 
 MaterialPipelines::MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn, VkRenderPass renderPass) : renderInstance(renderInstanceIn) {
     createDescriptorSetLayouts();
@@ -30,26 +33,26 @@ MaterialPipelines::~MaterialPipelines() {
     vkDestroyPipelineLayout(renderInstance->device, simplePipelineLayout, nullptr);
     vkDestroyPipelineLayout(renderInstance->device, envMirrorPipelineLayout, nullptr);
 
-    vkDestroyDescriptorSetLayout(renderInstance->device, viewProjLayout, nullptr);
+    vkDestroyDescriptorSetLayout(renderInstance->device, cameraInfoLayout, nullptr);
     vkDestroyDescriptorSetLayout(renderInstance->device, environmentLayout, nullptr);
 }
 
 void MaterialPipelines::createDescriptorSetLayouts() {
     // ViewProj Matrix Descriptor Layout
-    VkDescriptorSetLayoutBinding viewProjLayoutBinding {
+    VkDescriptorSetLayoutBinding cameraInfoLayoutBinding {
         .binding = 0,
         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
         .descriptorCount = 1,
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
     };
-    std::array<VkDescriptorSetLayoutBinding, 1> viewProjBindings = { viewProjLayoutBinding };
+    std::array<VkDescriptorSetLayoutBinding, 1> cameraInfoBindings = { cameraInfoLayoutBinding };
 
-    VkDescriptorSetLayoutCreateInfo viewProjLayoutInfo {
+    VkDescriptorSetLayoutCreateInfo cameraInfoLayoutInfo {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = static_cast<uint32_t>(viewProjBindings.size()),
-        .pBindings = viewProjBindings.data(),
+        .bindingCount = static_cast<uint32_t>(cameraInfoBindings.size()),
+        .pBindings = cameraInfoBindings.data(),
     };
-    VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &viewProjLayoutInfo, nullptr, &viewProjLayout), "failed to create descriptor set layout!");
+    VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &cameraInfoLayoutInfo, nullptr, &cameraInfoLayout), "failed to create descriptor set layout!");
 
     // Environment Descriptor Layout
     VkDescriptorSetLayoutBinding environmentTransformLayoutBinding {
@@ -182,13 +185,13 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
     VkPipelineLayoutCreateInfo simplePipelineLayoutInfo {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1,
-        .pSetLayouts = &viewProjLayout,
+        .pSetLayouts = &cameraInfoLayout,
         .pushConstantRangeCount = 1,
         .pPushConstantRanges = &pushConstantInfo,
     };
     VK_ERR(vkCreatePipelineLayout(renderInstance->device, &simplePipelineLayoutInfo, nullptr, &simplePipelineLayout), "failed to create pipeline layout!");
 
-    VkDescriptorSetLayout envMirrorLayouts[] = { viewProjLayout, environmentLayout };
+    VkDescriptorSetLayout envMirrorLayouts[] = { cameraInfoLayout, environmentLayout };
     VkPipelineLayoutCreateInfo envMirrorPipelineLayoutInfo {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 2,
@@ -206,6 +209,7 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
     VkShaderModule vertShaderModule = createShaderModule(*renderInstance, vertShaderArray, sizeof(vertShaderArray));
     VkShaderModule simpleFragShaderModule = createShaderModule(*renderInstance, simpleFragShaderArray, sizeof(simpleFragShaderArray));
     VkShaderModule environmentFragShaderModule = createShaderModule(*renderInstance, environmentFragShaderArray, sizeof(environmentFragShaderArray));
+    VkShaderModule mirrorFragShaderModule = createShaderModule(*renderInstance, mirrorFragShaderArray, sizeof(mirrorFragShaderArray));
 
     // Create the shader stages for our pipeline
     VkPipelineShaderStageCreateInfo vertShaderInfo {
@@ -226,9 +230,15 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
         .module = environmentFragShaderModule,
         .pName = "main",
     };
+    VkPipelineShaderStageCreateInfo mirrorFragShaderInfo {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = mirrorFragShaderModule,
+        .pName = "main",
+    };
     VkPipelineShaderStageCreateInfo simpleShaderStages[] = { vertShaderInfo, simpleFragShaderInfo };
     VkPipelineShaderStageCreateInfo environmentShaderStages[] = { vertShaderInfo, environmentFragShaderInfo };
-    VkPipelineShaderStageCreateInfo mirrorShaderStages[] = { vertShaderInfo, environmentFragShaderInfo };
+    VkPipelineShaderStageCreateInfo mirrorShaderStages[] = { vertShaderInfo, mirrorFragShaderInfo };
 
     // Finally create the render pipeline
     VkGraphicsPipelineCreateInfo renderPipelineInfos[] = {
@@ -304,4 +314,5 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
     vkDestroyShaderModule(renderInstance->device, vertShaderModule, nullptr);
     vkDestroyShaderModule(renderInstance->device, simpleFragShaderModule, nullptr);
     vkDestroyShaderModule(renderInstance->device, environmentFragShaderModule, nullptr);
+    vkDestroyShaderModule(renderInstance->device, mirrorFragShaderModule, nullptr);
 }

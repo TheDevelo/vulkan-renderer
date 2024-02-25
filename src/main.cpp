@@ -232,7 +232,7 @@ private:
     }
 
     void createUniformBuffers() {
-        VkDeviceSize cameraBufferSize = sizeof(ViewProjMatrices) * MAX_FRAMES_IN_FLIGHT;
+        VkDeviceSize cameraBufferSize = sizeof(CameraInfo) * MAX_FRAMES_IN_FLIGHT;
         // Create camera uniform buffers
         cameraUniformBuffer = std::make_unique<CombinedBuffer>(renderInstance, cameraBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         vkMapMemory(renderInstance->device, cameraUniformBuffer->bufferMemory, 0, cameraBufferSize, 0, &cameraUniformMap);
@@ -278,7 +278,7 @@ private:
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = descriptorPool,
             .descriptorSetCount = 1,
-            .pSetLayouts = &materialPipelines->viewProjLayout,
+            .pSetLayouts = &materialPipelines->cameraInfoLayout,
         };
 
         VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &cameraAllocInfo, &scene.cameraDescriptorSet), "failed to allocate descriptor sets!");
@@ -299,7 +299,7 @@ private:
         VkDescriptorBufferInfo cameraBufferInfo {
             .buffer = cameraUniformBuffer->buffer,
             .offset = 0,
-            .range = sizeof(ViewProjMatrices),
+            .range = sizeof(CameraInfo),
         };
 
         std::array<VkWriteDescriptorSet, 1> cameraDescriptorWrites {{
@@ -503,8 +503,8 @@ private:
         // Update our uniform buffers
         scene.updateCameraTransform(*renderInstance);
         scene.updateEnvironmentTransforms();
-        uint8_t* dstCameraMap = reinterpret_cast<uint8_t*>(cameraUniformMap) + currentFrame * sizeof(ViewProjMatrices);
-        memcpy(dstCameraMap, &scene.viewProj, sizeof(scene.viewProj));
+        uint8_t* dstCameraMap = reinterpret_cast<uint8_t*>(cameraUniformMap) + currentFrame * sizeof(CameraInfo);
+        memcpy(dstCameraMap, &scene.cameraInfo, sizeof(CameraInfo));
         for (size_t i = 0; i < scene.environments.size(); i++) {
             uint8_t* dstEnvMap = reinterpret_cast<uint8_t*>(environmentUniformMaps[i]) + currentFrame * sizeof(Mat4<float>);
             memcpy(dstEnvMap, &scene.environments[i].worldToEnv, sizeof(Mat4<float>));
@@ -622,7 +622,7 @@ private:
         SceneRenderInfo sceneRenderInfo {
             .commandBuffer = commandBuffer,
             .pipelines = *materialPipelines,
-            .cameraDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(ViewProjMatrices)),
+            .cameraDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(CameraInfo)),
             .environmentDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(Mat4<float>)),
         };
         scene.renderScene(sceneRenderInfo);

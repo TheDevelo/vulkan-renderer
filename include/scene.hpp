@@ -11,10 +11,13 @@
 #include "linear.hpp"
 #include "materials.hpp"
 
-// View and projection matrices for the vertex shader
-struct ViewProjMatrices {
+// Camera information that gets used as uniforms for the shaders
+// Need to alignas(256), since uniform buffers must be aligned to some device limit.
+// It will always be a power of 2 and at most 256, so 256 is the safe choice
+struct alignas(256) CameraInfo {
     Mat4<float> view;
     Mat4<float> proj;
+    Vec4<float> position;
 };
 
 // Data required for rendering, but not managed by the scene
@@ -191,7 +194,7 @@ public:
     bool useDebugCamera;
     CullingMode cullingMode;
 
-    ViewProjMatrices viewProj;
+    CameraInfo cameraInfo;
 private:
     void renderNode(SceneRenderInfo const& sceneRenderInfo, uint32_t nodeId, Mat4<float> const& parentToWorldTransform);
     void renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, Mat4<float> const& worldTransform);

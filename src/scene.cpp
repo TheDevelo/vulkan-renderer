@@ -117,9 +117,10 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
         aspectRatio = renderInstance.renderImageExtent.width / (float) renderInstance.renderImageExtent.height;
         vFov = DEG2RADF(60.0f);
         nearZ = 0.1f;
+        cameraInfo.position = Vec4<float>(userCamera.position, 1.0);
 
         // Calculate the projection matrix
-        viewProj.proj = linear::infinitePerspective(vFov, aspectRatio, nearZ);
+        cameraInfo.proj = linear::infinitePerspective(vFov, aspectRatio, nearZ);
 
         // Calculate the view matrix
         float sinPhi = std::sin(userCamera.phi);
@@ -127,7 +128,7 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
         float sinTheta = std::sin(userCamera.theta);
         float cosTheta = std::cos(userCamera.theta);
         Vec3<float> viewDirection(cosPhi * cosTheta, sinPhi * cosTheta, sinTheta);
-        viewProj.view = linear::lookAt(userCamera.position, viewDirection + userCamera.position, Vec3<float>(0.0f, 0.0f, 1.0f));
+        cameraInfo.view = linear::lookAt(userCamera.position, viewDirection + userCamera.position, Vec3<float>(0.0f, 0.0f, 1.0f));
     }
     else {
         // Scene camera
@@ -142,13 +143,13 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
 
         // Calculate the projection matrix
         if (camera.farZ.has_value()) {
-            viewProj.proj = linear::perspective(camera.vFov, camera.aspectRatio, camera.nearZ, camera.farZ.value());
+            cameraInfo.proj = linear::perspective(camera.vFov, camera.aspectRatio, camera.nearZ, camera.farZ.value());
         }
         else {
-            viewProj.proj = linear::infinitePerspective(camera.vFov, camera.aspectRatio, camera.nearZ);
+            cameraInfo.proj = linear::infinitePerspective(camera.vFov, camera.aspectRatio, camera.nearZ);
         }
 
-        // Calculate the view matrix from the camera's ancestors
+        // Calculate the view matrix and position from the camera's ancestors
         if (camera.ancestors.size() == 0) {
             PANIC(string_format("selected camera %u is not in the scene tree!", selectedCamera));
         }
@@ -160,9 +161,14 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
             }
             Node& node = nodes[nodeId];
 
-            viewMatrix = linear::mmul(viewMatrix, node.invTransform);
+            viewMatrix = linear::mmul(node.invTransform, viewMatrix);
         }
-        viewProj.view = viewMatrix;
+        cameraInfo.view = viewMatrix;
+        cameraInfo.position = Vec4<float>(userCamera.position, 1.0);
+        for (auto ancestor = camera.ancestors.rbegin(); ancestor != camera.ancestors.rend(); ancestor++) {
+            Node& node = nodes[*ancestor];
+            cameraInfo.position = linear::mmul(node.transform, cameraInfo.position);
+        }
     }
 
     // Update our culling camera if we don't have debug camera on
@@ -171,7 +177,7 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
         float halfNearHeight = nearZ * std::tan(vFov / 2.0f);
         float halfNearWidth = halfNearHeight * aspectRatio;
         cullingCamera = CullingCamera {
-            .viewMatrix = viewProj.view,
+            .viewMatrix = cameraInfo.view,
             .halfNearWidth = halfNearWidth,
             .halfNearHeight = halfNearHeight,
             .nearZ = nearZ,

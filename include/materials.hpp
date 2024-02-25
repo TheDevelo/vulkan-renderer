@@ -23,7 +23,7 @@ public:
     VkPipelineLayout envMirrorPipelineLayout; // Environment and Mirror share the same layout
 
     // Descriptor set layouts
-    VkDescriptorSetLayout viewProjLayout;
+    VkDescriptorSetLayout cameraInfoLayout;
     VkDescriptorSetLayout environmentLayout;
 
 private:
