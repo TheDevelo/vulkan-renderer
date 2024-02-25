@@ -1,5 +1,6 @@
 #version 450
-#
+#include "common.glsl"
+
 layout(set = 0, binding = 0) uniform CameraInfo {
     mat4 view;
     mat4 proj;
@@ -22,5 +23,5 @@ void main() {
     vec3 mirrorDir = reflect((worldPos - camera.position).xyz, normal);
 
     vec3 envLookupDir = (envTransform.transform * vec4(mirrorDir, 0.0)).xyz;
-    outColor = fragColor * texture(envCubemap, envLookupDir);
+    outColor = tonemap(fragColor * texture(envCubemap, envLookupDir));
 }

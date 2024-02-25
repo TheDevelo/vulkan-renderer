@@ -1,4 +1,5 @@
 #version 450
+#include "common.glsl"
 
 layout(set = 1, binding = 0) uniform EnvTransform {
     mat4 transform;
@@ -14,5 +15,5 @@ void main() {
     vec3 normal = normalize(fragNormal);
 
     vec3 envLookupDir = (envTransform.transform * vec4(normal, 0.0)).xyz;
-    outColor = fragColor * texture(envCubemap, envLookupDir);
+    outColor = tonemap(fragColor * texture(envCubemap, envLookupDir));
 }
