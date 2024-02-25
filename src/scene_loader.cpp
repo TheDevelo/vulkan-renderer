@@ -178,7 +178,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         }
         if (nodeObj.contains("environment")) {
             uint32_t jsonId = nodeObj.at("environment").as_num();
-            node.environmentIndex = cameraIdMap.at(jsonId);
+            node.environmentIndex = environmentIdMap.at(jsonId);
         }
 
         // Add child nodes
@@ -504,6 +504,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         computeNodeBBox(rootNode, dynamicNodes, visitedNodes);
     }
 
+    calculateAncestors();
     cullingMode = options::getDefaultCullingMode();
 }
 
@@ -604,5 +605,50 @@ void Scene::switchCameraByName(std::string name) {
 
     if (!foundCamera) {
         PANIC(string_format("failed to find camera %s", name.c_str()));
+    }
+}
+
+// Helper to calculate the ancestor path to each Camera/Environment for easy transform calculation
+void Scene::calculateAncestors() {
+    std::vector<uint32_t> ancestors;
+    auto traverse = [&](const auto& recurse, uint32_t nodeId) -> void {
+        ancestors.push_back(nodeId);
+
+        if (nodeId >= nodes.size()) {
+            PANIC(string_format("tried to traverse node %u out of range!", nodeId));
+        }
+        Node& node = nodes[nodeId];
+
+        // Add ancestors to any child cameras/environments
+        if (node.cameraIndex.has_value()) {
+            if (node.cameraIndex.value() >= cameras.size()) {
+                PANIC(string_format("tried to traverse camera %u out of range!", node.cameraIndex.value()));
+            }
+            Camera& camera = cameras[node.cameraIndex.value()];
+
+            if (camera.ancestors.size() == 0) {
+                camera.ancestors = ancestors;
+            }
+        }
+        if (node.environmentIndex.has_value()) {
+            if (node.environmentIndex.value() >= environments.size()) {
+                PANIC(string_format("tried to traverse environment %u out of range!", node.environmentIndex.value()));
+            }
+            Environment& environment = environments[node.environmentIndex.value()];
+
+            if (environment.ancestors.size() == 0) {
+                environment.ancestors = ancestors;
+            }
+        }
+
+        for (uint32_t childId : node.childIndices) {
+            recurse(recurse, childId);
+        }
+
+        ancestors.pop_back();
+    };
+
+    for (uint32_t rootNode : sceneRoots) {
+        traverse(traverse, rootNode);
     }
 }

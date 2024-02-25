@@ -21,7 +21,9 @@ struct ViewProjMatrices {
 struct SceneRenderInfo {
     VkCommandBuffer commandBuffer;
     MaterialPipelines const& pipelines;
-    VkDescriptorSet cameraDescriptor;
+    // Descriptor offsets are used for switching between different frame copies of descriptors
+    uint32_t cameraDescriptorOffset;
+    uint32_t environmentDescriptorOffset;
 };
 
 // Container for a local-space axis-aligned bounding box. Represented by the corners with minimal XYZ and maximal XYZ
@@ -76,6 +78,9 @@ struct Camera {
     float vFov;
     float nearZ;
     std::optional<float> farZ;
+
+    // Ancestor path to Camera, so that we can easily calculate the appropriate transforms
+    std::vector<uint32_t> ancestors;
 };
 
 enum DriverChannel {
@@ -123,7 +128,10 @@ struct Environment {
     std::string name;
 
     std::unique_ptr<CombinedCubemap> radiance;
-    // Descriptor Set for the environment
+
+    // Ancestor path to Environment, so that we can easily calculate the appropriate transforms
+    std::vector<uint32_t> ancestors;
+    Mat4<float> worldToEnv;
     VkDescriptorSet descriptorSet;
 };
 
@@ -161,6 +169,7 @@ public:
 
     void renderScene(SceneRenderInfo const& sceneRenderInfo);
     void updateCameraTransform(RenderInstance const& renderInstance); // Need render instance for the user camera aspect ratio calculation
+    void updateEnvironmentTransforms();
     void moveUserCamera(UserCameraMoveEvent moveAmount, float dt);
     void rotateUserCamera(UserCameraRotateEvent rotateAmount);
     void updateAnimation(float time);
@@ -169,6 +178,7 @@ public:
     // Cameras are public so that the "outside" can change the selected camera
     uint32_t selectedCamera = 0;
     std::vector<Camera> cameras;
+    VkDescriptorSet cameraDescriptorSet;
 
     // Material and environment info used to create the descriptor pool, allocate descriptors, and update them
     MaterialCounts materialCounts;
@@ -188,8 +198,8 @@ private:
 
     uint32_t vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderInstance, const void* inBuffer, uint32_t size);
     bool computeNodeBBox(uint32_t nodeId, std::set<uint32_t>& dynamicNodes, std::set<uint32_t>& visitedNodes);
+    void calculateAncestors();
 
-    std::optional<Mat4<float>> findCameraWTLTransform(uint32_t nodeId, uint32_t cameraId);
     bool bboxInViewFrustum(Mat4<float> const& worldTransform, AxisAlignedBoundingBox const& bbox);
 
     std::vector<uint32_t> sceneRoots;

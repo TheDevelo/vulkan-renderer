@@ -38,7 +38,7 @@ void MaterialPipelines::createDescriptorSetLayouts() {
     // ViewProj Matrix Descriptor Layout
     VkDescriptorSetLayoutBinding viewProjLayoutBinding {
         .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
         .descriptorCount = 1,
         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
     };
@@ -52,14 +52,21 @@ void MaterialPipelines::createDescriptorSetLayouts() {
     VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &viewProjLayoutInfo, nullptr, &viewProjLayout), "failed to create descriptor set layout!");
 
     // Environment Descriptor Layout
-    VkDescriptorSetLayoutBinding environmentLayoutBinding {
+    VkDescriptorSetLayoutBinding environmentTransformLayoutBinding {
         .binding = 0,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+        .descriptorCount = 1,
+        .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .pImmutableSamplers = nullptr,
+    };
+    VkDescriptorSetLayoutBinding environmentMapLayoutBinding {
+        .binding = 1,
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         .descriptorCount = 1,
         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
         .pImmutableSamplers = nullptr,
     };
-    std::array<VkDescriptorSetLayoutBinding, 1> environmentBindings = { environmentLayoutBinding };
+    std::array<VkDescriptorSetLayoutBinding, 2> environmentBindings = { environmentTransformLayoutBinding, environmentMapLayoutBinding };
 
     VkDescriptorSetLayoutCreateInfo environmentLayoutInfo {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,

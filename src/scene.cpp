@@ -89,9 +89,9 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
         PANIC("mesh contains invalid material!");
     }
 
-    vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &sceneRenderInfo.cameraDescriptor, 0, nullptr);
+    vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &cameraDescriptorSet, 1, &sceneRenderInfo.cameraDescriptorOffset);
     if (material.type != MaterialType::SIMPLE) {
-        vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &environments[0].descriptorSet, 0, nullptr);
+        vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &environments[0].descriptorSet, 1, &sceneRenderInfo.environmentDescriptorOffset);
     }
 
     if (mesh.vertexBufferIndex >= buffers.size()) {
@@ -148,25 +148,21 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
             viewProj.proj = linear::infinitePerspective(camera.vFov, camera.aspectRatio, camera.nearZ);
         }
 
-        // Find the worldToLocal transform for the selected camera to serve as the view matrix
-        bool foundCamera = false;
-        for (uint32_t rootNode : sceneRoots) {
-            if (rootNode >= nodes.size()) {
-                PANIC(string_format("node %u out of range is listed as scene root!", rootNode));
-            }
-
-            std::optional<Mat4<float>> worldToLocal = findCameraWTLTransform(rootNode, selectedCamera);
-            if (worldToLocal.has_value()) {
-                // After getting worldToLocal, we need to flip the Y and Z coordinates to get our camera propertly oriented
-                viewProj.view = worldToLocal.value();
-                foundCamera = true;
-                break;
-            }
+        // Calculate the view matrix from the camera's ancestors
+        if (camera.ancestors.size() == 0) {
+            PANIC(string_format("selected camera %u is not in the scene tree!", selectedCamera));
         }
 
-        if (!foundCamera) {
-            PANIC(string_format("selected camera %u is not in scene!", selectedCamera));
+        Mat4<float> viewMatrix = linear::M4F_IDENTITY;
+        for (uint32_t nodeId : camera.ancestors) {
+            if (nodeId >= nodes.size()) {
+                PANIC(string_format("node %u out of range is an ancestor to a camera!", nodeId));
+            }
+            Node& node = nodes[nodeId];
+
+            viewMatrix = linear::mmul(viewMatrix, node.invTransform);
         }
+        viewProj.view = viewMatrix;
     }
 
     // Update our culling camera if we don't have debug camera on
@@ -184,31 +180,24 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
     }
 }
 
-std::optional<Mat4<float>> Scene::findCameraWTLTransform(uint32_t nodeId, uint32_t cameraId) {
-    // Sanity check that we are rendering a valid node - we should already be checking in the relevant areas
-    if (nodeId >= nodes.size()) {
-        PANIC(string_format("tried to render node %u out of range!", nodeId));
-    }
-    Node& node = nodes[nodeId];
-
-    // If node has camera, send parentToLocal transform
-    if (node.cameraIndex.has_value() && node.cameraIndex.value() == cameraId) {
-        return node.invTransform;
-    };
-
-    for (uint32_t childId : node.childIndices) {
-        if (childId >= nodes.size()) {
-            PANIC(string_format("node %s has node %u out of range as child!", node.name.c_str(), childId));
+void Scene::updateEnvironmentTransforms() {
+    for (Environment& environment : environments) {
+        if (environment.ancestors.size() == 0) {
+            PANIC("environment is not in the scene tree!");
         }
 
-        std::optional<Mat4<float>> localToChild = findCameraWTLTransform(childId, cameraId);
-        if (localToChild.has_value()) {
-            // Found camera in child, so accumulate transform upwards
-            return linear::mmul(localToChild.value(), node.invTransform);
-        }
-    }
+        // Calculate the transform matrix from the environment's ancestors
+        Mat4<float> worldToEnvMatrix = linear::M4F_IDENTITY;
+        for (uint32_t nodeId : environment.ancestors) {
+            if (nodeId >= nodes.size()) {
+                PANIC(string_format("node %u out of range is an ancestor to a camera!", nodeId));
+            }
+            Node& node = nodes[nodeId];
 
-    return std::nullopt;
+            worldToEnvMatrix = linear::mmul(worldToEnvMatrix, node.invTransform);
+        }
+        environment.worldToEnv = worldToEnvMatrix;
+    }
 }
 
 void Scene::moveUserCamera(UserCameraMoveEvent moveAmount, float dt) {

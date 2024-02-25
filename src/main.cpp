@@ -51,11 +51,12 @@ private:
 
     std::unique_ptr<CombinedImage> depthImage;
 
-    std::vector<CombinedBuffer> uniformBuffers;
-    std::vector<void*> uniformBuffersMaps;
+    std::unique_ptr<CombinedBuffer> cameraUniformBuffer;
+    void* cameraUniformMap;
+    std::vector<CombinedBuffer> environmentUniformBuffers;
+    std::vector<void*> environmentUniformMaps;
 
     VkDescriptorPool descriptorPool;
-    std::vector<VkDescriptorSet> descriptorSets;
 
     std::vector<VkCommandBuffer> commandBuffers;
 
@@ -231,104 +232,121 @@ private:
     }
 
     void createUniformBuffers() {
-        VkDeviceSize bufferSize = sizeof(ViewProjMatrices);
+        VkDeviceSize cameraBufferSize = sizeof(ViewProjMatrices) * MAX_FRAMES_IN_FLIGHT;
+        // Create camera uniform buffers
+        cameraUniformBuffer = std::make_unique<CombinedBuffer>(renderInstance, cameraBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        vkMapMemory(renderInstance->device, cameraUniformBuffer->bufferMemory, 0, cameraBufferSize, 0, &cameraUniformMap);
 
-        uniformBuffers.reserve(MAX_FRAMES_IN_FLIGHT);
-        uniformBuffersMaps.resize(MAX_FRAMES_IN_FLIGHT);
+        // Create environment uniform buffers
+        VkDeviceSize environmentBufferSize = sizeof(Mat4<float>) * MAX_FRAMES_IN_FLIGHT;
+        environmentUniformBuffers.reserve(scene.environments.size());
+        environmentUniformMaps.resize(scene.environments.size());
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            uniformBuffers.emplace_back(renderInstance, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-            vkMapMemory(renderInstance->device, uniformBuffers[i].bufferMemory, 0, bufferSize, 0, &uniformBuffersMaps[i]);
+        for (size_t i = 0; i < scene.environments.size(); i++) {
+            environmentUniformBuffers.emplace_back(renderInstance, environmentBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            vkMapMemory(renderInstance->device, environmentUniformBuffers[i].bufferMemory, 0, environmentBufferSize, 0, &environmentUniformMaps[i]);
         }
     }
 
     void createDescriptorSets() {
-        uint32_t environmentDescCount = scene.environments.size();
+        uint32_t cameraDescs = 1;
+        uint32_t environmentDescs = scene.environments.size();
+
         // Create the descriptor pool
         std::array<VkDescriptorPoolSize, 2> poolSizes {{
             {
-                .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                .descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
+                .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+                .descriptorCount = cameraDescs + environmentDescs,
             },
             {
                 .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = environmentDescCount,
+                .descriptorCount = environmentDescs,
             }
         }};
 
         VkDescriptorPoolCreateInfo poolInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) + environmentDescCount,
+            .maxSets = cameraDescs + environmentDescs,
             .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
             .pPoolSizes = poolSizes.data(),
         };
 
         VK_ERR(vkCreateDescriptorPool(renderInstance->device, &poolInfo, nullptr, &descriptorPool), "failed to create descriptor pool!");
 
-        // Allocate the descriptor sets
-        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, materialPipelines->viewProjLayout);
-        VkDescriptorSetAllocateInfo allocInfo {
+        // Allocate the camera descriptor set
+        VkDescriptorSetAllocateInfo cameraAllocInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = descriptorPool,
-            .descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT),
-            .pSetLayouts = layouts.data(),
+            .descriptorSetCount = 1,
+            .pSetLayouts = &materialPipelines->viewProjLayout,
         };
 
-        descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-        VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &allocInfo, descriptorSets.data()), "failed to allocate descriptor sets!");
+        VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &cameraAllocInfo, &scene.cameraDescriptorSet), "failed to allocate descriptor sets!");
 
         // Allocate the environment descriptor sets
-        std::vector<VkDescriptorSetLayout> envLayouts(MAX_FRAMES_IN_FLIGHT, materialPipelines->environmentLayout);
+        std::vector<VkDescriptorSetLayout> envLayouts(scene.environments.size(), materialPipelines->environmentLayout);
         VkDescriptorSetAllocateInfo envAllocInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = descriptorPool,
-            .descriptorSetCount = environmentDescCount,
+            .descriptorSetCount = environmentDescs,
             .pSetLayouts = envLayouts.data(),
         };
 
-        std::vector<VkDescriptorSet> envDescriptorSets(environmentDescCount);
+        std::vector<VkDescriptorSet> envDescriptorSets(environmentDescs);
         VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &envAllocInfo, envDescriptorSets.data()), "failed to allocate descriptor sets!");
 
-        // Point our descriptor sets at the underlying uniform buffers
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            VkDescriptorBufferInfo bufferInfo {
-                .buffer = uniformBuffers[i].buffer,
+        // Point our descriptor sets at the underlying resources
+        VkDescriptorBufferInfo cameraBufferInfo {
+            .buffer = cameraUniformBuffer->buffer,
+            .offset = 0,
+            .range = sizeof(ViewProjMatrices),
+        };
+
+        std::array<VkWriteDescriptorSet, 1> cameraDescriptorWrites {{
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = scene.cameraDescriptorSet,
+                .dstBinding = 0,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+                .pBufferInfo = &cameraBufferInfo,
+            }
+        }};
+
+        vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(cameraDescriptorWrites.size()), cameraDescriptorWrites.data(), 0, nullptr);
+
+        for (size_t i = 0; i < environmentDescs; i++) {
+            VkDescriptorBufferInfo envBufferInfo {
+                .buffer = environmentUniformBuffers[i].buffer,
                 .offset = 0,
-                .range = sizeof(ViewProjMatrices),
+                .range = sizeof(Mat4<float>),
             };
-
-            std::array<VkWriteDescriptorSet, 1> descriptorWrites {{
-                {
-                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    .dstSet = descriptorSets[i],
-                    .dstBinding = 0,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .pBufferInfo = &bufferInfo,
-                }
-            }};
-
-            vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
-        }
-
-        for (size_t i = 0; i < environmentDescCount; i++) {
             VkDescriptorImageInfo imageInfo {
                 .sampler = textureSampler,
                 .imageView = scene.environments[i].radiance->imageView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             };
 
-            std::array<VkWriteDescriptorSet, 1> descriptorWrites {{
+            std::array<VkWriteDescriptorSet, 2> descriptorWrites {{
                 {
                     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     .dstSet = envDescriptorSets[i],
                     .dstBinding = 0,
                     .dstArrayElement = 0,
                     .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+                    .pBufferInfo = &envBufferInfo,
+                },
+                {
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = envDescriptorSets[i],
+                    .dstBinding = 1,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .pImageInfo = &imageInfo,
-                }
+                },
             }};
 
             vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
@@ -482,9 +500,15 @@ private:
         // Only reset the fence if we are going to be submitting work
         vkResetFences(renderInstance->device, 1, &inFlightFences[currentFrame]);
 
-        // Update our viewProj matrices from our camera
+        // Update our uniform buffers
         scene.updateCameraTransform(*renderInstance);
-        memcpy(uniformBuffersMaps[currentFrame], &scene.viewProj, sizeof(scene.viewProj));
+        scene.updateEnvironmentTransforms();
+        uint8_t* dstCameraMap = reinterpret_cast<uint8_t*>(cameraUniformMap) + currentFrame * sizeof(ViewProjMatrices);
+        memcpy(dstCameraMap, &scene.viewProj, sizeof(scene.viewProj));
+        for (size_t i = 0; i < scene.environments.size(); i++) {
+            uint8_t* dstEnvMap = reinterpret_cast<uint8_t*>(environmentUniformMaps[i]) + currentFrame * sizeof(Mat4<float>);
+            memcpy(dstEnvMap, &scene.environments[i].worldToEnv, sizeof(Mat4<float>));
+        }
 
         // Record our render commands
         vkResetCommandBuffer(commandBuffers[currentFrame], 0);
@@ -598,7 +622,8 @@ private:
         SceneRenderInfo sceneRenderInfo {
             .commandBuffer = commandBuffer,
             .pipelines = *materialPipelines,
-            .cameraDescriptor = descriptorSets[currentFrame]
+            .cameraDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(ViewProjMatrices)),
+            .environmentDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(Mat4<float>)),
         };
         scene.renderScene(sceneRenderInfo);
 
