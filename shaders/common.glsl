@@ -15,7 +15,8 @@ struct VertexOutput {
     vec3 tangent;
     vec3 bitangent;
     vec2 uv;
-    vec4 worldPos;
+    vec3 viewDir;
+    vec3 tangentViewDir;
 };
 
 // Tonemapping operator is (an approximation of) the ACES Filmic curve
@@ -33,9 +34,42 @@ vec4 tonemap(vec4 linearColor) {
     return tonemappedColor;
 }
 
-vec3 getNormal(VertexOutput frag, MaterialConstants materialConstants, sampler2D normalMap) {
+// Gets displacement-adjusted UV coordinates using Parallax Occlusion Mapping
+// https://learnopengl.com/Advanced-Lighting/Parallax-Mapping - Good resource covering POM
+vec2 getAdjustedUVs(VertexOutput frag, MaterialConstants materialConstants, sampler2D displacementMap) {
+    if (materialConstants.useDisplacementMap) {
+        const float POMLayers = 4.0;
+        const float layerStep = 1.0 / POMLayers;
+        const float heightScale = 0.1;
+        // deltaUV is change in UV taking a unit step in the normal direction
+        vec2 deltaUV = frag.tangentViewDir.xy * layerStep * heightScale / frag.tangentViewDir.z;
+
+        // Step through the layers until we "hit" the depth map
+        float currentLayerDepth = 0.0;
+        vec2 currentUV = frag.uv;
+        float currentDepthValue = texture(displacementMap, currentUV).r;
+        while (currentLayerDepth < currentDepthValue) {
+            currentUV -= deltaUV;
+            currentDepthValue = texture(displacementMap, currentUV).r;
+            currentLayerDepth += layerStep;
+        }
+
+        // Use the previous layer's step to calculate a slope, and calculate the intersection with that slope
+        vec2 prevUV = currentUV + deltaUV;
+        float curDistToDisplacement = currentDepthValue - currentLayerDepth;
+        float prevDistToDisplacement = texture(displacementMap, prevUV).r - (currentLayerDepth - layerStep);
+        float intersectionT = curDistToDisplacement / (curDistToDisplacement - prevDistToDisplacement);
+
+        return currentUV * (1.0 - intersectionT) + prevUV * intersectionT;
+    }
+    else {
+        return frag.uv;
+    }
+}
+
+vec3 getNormal(VertexOutput frag, MaterialConstants materialConstants, sampler2D normalMap, vec2 uv) {
     if (materialConstants.useNormalMap) {
-        vec3 TBN = texture(normalMap, frag.uv).xyz * 2.0 - 1.0;
+        vec3 TBN = texture(normalMap, uv).xyz * 2.0 - 1.0;
         return TBN.x * normalize(frag.tangent) + TBN.y * normalize(frag.bitangent) + TBN.z * normalize(frag.normal);
     }
     else {

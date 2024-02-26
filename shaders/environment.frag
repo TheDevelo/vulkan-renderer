@@ -17,7 +17,8 @@ layout(location = 0) in VertexOutput frag;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    vec3 normal = getNormal(frag, materialConstants, normalMap);
+    vec2 uv = getAdjustedUVs(frag, materialConstants, displacementMap);
+    vec3 normal = getNormal(frag, materialConstants, normalMap, uv);
 
     vec3 envLookupDir = (envTransform * vec4(normal, 0.0)).xyz;
     outColor = tonemap(frag.color * texture(envCubemap, envLookupDir));

@@ -99,9 +99,11 @@ struct alignas(256) MaterialConstants {
     Vec3<float> albedo;
     float roughness;
     float metalness;
-    bool useNormalMap;
-    bool useDisplacementMap;
-    bool useAlbedoMap;
-    bool useRoughnessMap;
-    bool useMetalnessMap;
+    // GLSL booleans are 4-byte aligned, so we have to match here as well.
+    // Could be more efficient and pack this all into one uint32_t, but again, no point in compacting further since we aren't close to using all 256 bytes
+    alignas(4) bool useNormalMap;
+    alignas(4) bool useDisplacementMap;
+    alignas(4) bool useAlbedoMap;
+    alignas(4) bool useRoughnessMap;
+    alignas(4) bool useMetalnessMap;
 };

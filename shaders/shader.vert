@@ -20,12 +20,17 @@ layout(push_constant) uniform pc {
 };
 
 void main() {
-    frag.worldPos = model * vec4(inPosition, 1.0);
-    gl_Position = camera.proj * camera.view * frag.worldPos;
+    vec4 worldPos = model * vec4(inPosition, 1.0);
+    gl_Position = camera.proj * camera.view * worldPos;
 
     frag.color = inColor;
+    frag.uv = inUV;
+
     frag.normal = normalize(mat3(transpose(inverse(model))) * inNormal);
     frag.tangent = normalize(mat3(model) * inTangent.xyz);
     frag.bitangent = cross(frag.normal, frag.tangent) * inTangent.w;
-    frag.uv = inUV;
+    mat3 TBN = transpose(mat3(frag.tangent, frag.bitangent, frag.normal)); // Matrix that turns directions in world space to directions in tangent space
+
+    frag.viewDir = (worldPos - camera.position).xyz;
+    frag.tangentViewDir = TBN * frag.viewDir;
 }
