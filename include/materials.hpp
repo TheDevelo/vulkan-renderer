@@ -37,6 +37,8 @@ private:
 struct Vertex {
     Vec3<float> pos;
     Vec3<float> normal;
+    Vec4<float> tangent;
+    Vec2<float> uv;
     Vec4<uint8_t> color;
 
     static VkVertexInputBindingDescription getBindingDescription() {
@@ -49,8 +51,8 @@ struct Vertex {
         return bindingDescription;
     }
 
-    static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
-        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions {{
+    static std::array<VkVertexInputAttributeDescription, 5> getAttributeDescriptions() {
+        std::array<VkVertexInputAttributeDescription, 5> attributeDescriptions {{
             {
                 .location = 0,
                 .binding = 0,
@@ -66,6 +68,18 @@ struct Vertex {
             {
                 .location = 2,
                 .binding = 0,
+                .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+                .offset = offsetof(Vertex, tangent),
+            },
+            {
+                .location = 3,
+                .binding = 0,
+                .format = VK_FORMAT_R32G32_SFLOAT,
+                .offset = offsetof(Vertex, uv),
+            },
+            {
+                .location = 4,
+                .binding = 0,
                 .format = VK_FORMAT_R8G8B8A8_UNORM,
                 .offset = offsetof(Vertex, color),
             }
@@ -74,4 +88,3 @@ struct Vertex {
         return attributeDescriptions;
     }
 };
-

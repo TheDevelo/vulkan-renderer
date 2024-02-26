@@ -253,6 +253,7 @@ private:
         uint32_t environmentDescs = scene.environments.size();
 
         // Create the descriptor pool
+        // NOTE: Each type needs at least 1 descriptor to allocate, or else we get an error
         std::array<VkDescriptorPoolSize, 2> poolSizes {{
             {
                 .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
@@ -260,7 +261,7 @@ private:
             },
             {
                 .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = environmentDescs,
+                .descriptorCount = std::min(environmentDescs, 1u),
             }
         }};
 

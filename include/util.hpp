@@ -19,7 +19,7 @@ VkCommandBuffer beginSingleUseCBuffer(RenderInstance const& renderInstance);
 void endSingleUseCBuffer(RenderInstance const& renderInstance, VkCommandBuffer commandBuffer);
 
 // Reading file to buffer helper
-std::vector<char> readFile(const std::string& filename);
+std::vector<uint8_t> readFile(const std::string& filename);
 
 // String formatting function, since apparently my gcc doesn't support the c++20 string formatting library???
 template<typename ...Args>

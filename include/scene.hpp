@@ -1,6 +1,7 @@
 #pragma once
 #include <vulkan/vulkan.h>
 
+#include <filesystem>
 #include <optional>
 #include <set>
 #include <string>
@@ -8,6 +9,7 @@
 
 #include "buffer.hpp"
 #include "instance.hpp"
+#include "json.hpp"
 #include "linear.hpp"
 #include "materials.hpp"
 
@@ -199,7 +201,8 @@ private:
     void renderNode(SceneRenderInfo const& sceneRenderInfo, uint32_t nodeId, Mat4<float> const& parentToWorldTransform);
     void renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, Mat4<float> const& worldTransform);
 
-    uint32_t vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderInstance, const void* inBuffer, uint32_t size);
+    std::vector<Vertex> loadVerticesFromAttributes(json::object const& attributeJson, uint32_t vertexCount, std::filesystem::path directory);
+    void buildCombinedVertexBuffer(std::shared_ptr<RenderInstance>& renderInstance, std::vector<std::vector<Vertex>> const& meshVertices);
     bool computeNodeBBox(uint32_t nodeId, std::set<uint32_t>& dynamicNodes, std::set<uint32_t>& visitedNodes);
     void calculateAncestors();
 

@@ -4,7 +4,6 @@
 #include <limits>
 #include <map>
 #include <set>
-#include <cstring>
 
 #include "instance.hpp"
 #include "json.hpp"
@@ -192,10 +191,11 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         nodes.push_back(node);
     }
 
-    // Iterate through all the meshes, and accumulate all the vertex data into one big buffer
-    // TODO: properly handle topology, index buffers, and attribute sets aside from the assumed given one
-    // First, loop through the mesh objects just so we can reserver a big enough buffer
-    uint32_t totalBufferCount = 0;
+    // Iterate through all the meshes and construct their Mesh representation, as well as loading their vertices
+    // TODO: Properly handle topology and indexed meshes
+    std::vector<std::vector<Vertex>> meshVertices;
+    meshes.reserve(meshIdMap.size());
+    meshVertices.reserve(meshIdMap.size());
     for (auto idPair : meshIdMap) {
         uint32_t s72Id = idPair.first;
         json::object const& meshObj = sceneArr[s72Id].as_obj();
@@ -207,18 +207,6 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             PANIC("Scene loading error: mesh has no vertices");
         }
 
-        // TODO: account for different attribute sets
-        totalBufferCount += static_cast<uint32_t>(meshObj.at("count").as_num());
-    }
-
-    // Now, create the mesh objects and copy into the CPU buffer
-    uint32_t curBufferCount = 0;
-    std::unique_ptr<Vertex[]> buffer(new Vertex[totalBufferCount]);
-    meshes.reserve(meshIdMap.size());
-    for (auto idPair : meshIdMap) {
-        uint32_t s72Id = idPair.first;
-        json::object const& meshObj = sceneArr[s72Id].as_obj();
-
         if (!meshObj.contains("attributes") || !meshObj.at("attributes").is_obj()) {
             PANIC("Scene loading error: mesh doesn't have attributes");
         }
@@ -227,8 +215,10 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         Mesh mesh {
             .name = meshObj.at("name").as_str(),
             .vertexCount = static_cast<uint32_t>(meshObj.at("count").as_num()),
+            /*
             .vertexBufferIndex = 0,
             .vertexBufferOffset = curBufferCount * static_cast<uint32_t>(sizeof(Vertex)),
+            */
 
             .bbox = AxisAlignedBoundingBox {
                 .minCorner = Vec3<float>(std::numeric_limits<float>::max()),
@@ -236,18 +226,12 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             }
         };
 
-        // Load the file and copy into the total buffer
-        // TODO: actually handle the attributes
-        json::object const& posObj = attribObj.at("POSITION").as_obj();
-        uint32_t fileOffset = posObj.at("offset").as_num();
-        uint32_t fileSize = mesh.vertexCount * sizeof(Vertex);
-        std::filesystem::path filePath = directory / posObj.at("src").as_str();
-        std::vector<char> file = readFile(filePath.string());
-        memcpy(&buffer[curBufferCount], file.data() + fileOffset, fileSize);
+        // Load the mesh attributes into a vertex buffer
+        std::vector<Vertex> vertices = loadVerticesFromAttributes(attribObj, mesh.vertexCount, directory);
 
         // Calculate the bounding box for our mesh
-        for (uint32_t i = curBufferCount; i < curBufferCount + mesh.vertexCount; i++) {
-            addVertToBBox(buffer[i].pos, mesh.bbox);
+        for (uint32_t i = 0; i < mesh.vertexCount; i++) {
+            addVertToBBox(vertices[i].pos, mesh.bbox);
         }
 
         // Add the material
@@ -261,11 +245,11 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         }
 
         meshes.push_back(mesh);
-        curBufferCount += mesh.vertexCount;
+        meshVertices.push_back(std::move(vertices));
     }
 
-    // Create the vertex buffer from our accumulated buffer
-    vertexBufferFromBuffer(renderInstance, buffer.get(), totalBufferCount * sizeof(Vertex));
+    // Create the combined vertex buffer from the loaded mesh vertices
+    buildCombinedVertexBuffer(renderInstance, meshVertices);
 
     // Iterate through all the cameras and construct their Camera representation
     cameras.reserve(cameraIdMap.size());
@@ -506,35 +490,6 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
     calculateAncestors();
     cullingMode = options::getDefaultCullingMode();
-}
-
-// Helper to construct a vertex buffer from a CPU buffer
-uint32_t Scene::vertexBufferFromBuffer(std::shared_ptr<RenderInstance>& renderInstance, const void* inBuffer, uint32_t size) {
-    // The final vertex buffer we want to use
-    CombinedBuffer& vertexBuffer = buffers.emplace_back(renderInstance, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    // Staging buffer will location on CPU so that we can directly copy to it. We then use it to transfer fully over to the GPU
-    CombinedBuffer stagingBuffer = CombinedBuffer(renderInstance, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-    void* data;
-    vkMapMemory(renderInstance->device, stagingBuffer.bufferMemory, 0, size, 0, &data);
-    memcpy(data, inBuffer, (size_t) size);
-    vkUnmapMemory(renderInstance->device, stagingBuffer.bufferMemory);
-
-    // Copy from staging buffer to vertex buffer
-    VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
-    BufferCopy bufferCopyInfos[] = {
-        {
-            .srcBuffer = stagingBuffer.buffer,
-            .srcOffset = 0,
-            .dstBuffer = vertexBuffer.buffer,
-            .dstOffset = 0,
-            .size = size,
-        },
-    };
-    copyBuffers(commandBuffer, bufferCopyInfos, 1);
-    endSingleUseCBuffer(*renderInstance, commandBuffer);
-
-    return buffers.size() - 1;
 }
 
 // Helper to recursively compute the bounding box of a node with dynamic programming

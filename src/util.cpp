@@ -69,17 +69,17 @@ void endSingleUseCBuffer(RenderInstance const& renderInstance, VkCommandBuffer c
 }
 
 // Helper function to read files into a vector of chars
-std::vector<char> readFile(const std::string& filename) {
+std::vector<uint8_t> readFile(const std::string& filename) {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
     if (!file.is_open()) {
         PANIC("failed to open file!");
     }
 
     size_t fileSize = (size_t) file.tellg();
-    std::vector<char> buffer(fileSize);
+    std::vector<uint8_t> buffer(fileSize);
 
     file.seekg(0);
-    file.read(buffer.data(), fileSize);
+    file.read(reinterpret_cast<char*>(buffer.data()), fileSize);
 
     file.close();
 
