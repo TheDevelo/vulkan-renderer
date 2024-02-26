@@ -57,6 +57,7 @@ private:
     std::vector<void*> environmentUniformMaps;
 
     VkDescriptorPool descriptorPool;
+    std::unique_ptr<CombinedImage> defaultDescriptorImage;
 
     std::vector<VkCommandBuffer> commandBuffers;
 
@@ -249,6 +250,12 @@ private:
     }
 
     void createDescriptorSets() {
+        // Create an image that will be used for the image view descriptors that don't have a valid image
+        defaultDescriptorImage = std::make_unique<CombinedImage>(renderInstance, 1, 1, VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+        VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
+        transitionImageLayout(commandBuffer, defaultDescriptorImage->image, VK_FORMAT_R32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        endSingleUseCBuffer(*renderInstance, commandBuffer);
+
         // Pre-calculate counts for descriptors
         uint32_t cameraDescs = 1;
         uint32_t environmentDescs = scene.environments.size();
@@ -401,40 +408,42 @@ private:
             });
 
             // Add normal map if we have one
+            VkDescriptorImageInfo& normalInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+                .sampler = textureSampler,
+                .imageView = defaultDescriptorImage->imageView,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            });
             if (material.normalMap != nullptr) {
-                VkDescriptorImageInfo& imageInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
-                    .sampler = textureSampler,
-                    .imageView = material.normalMap->imageView,
-                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                });
-                descriptorWrites.emplace_back(VkWriteDescriptorSet {
-                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    .dstSet = material.descriptorSet,
-                    .dstBinding = 1,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                    .pImageInfo = &imageInfo,
-                });
+                normalInfo.imageView = material.normalMap->imageView;
             }
+            descriptorWrites.emplace_back(VkWriteDescriptorSet {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = material.descriptorSet,
+                .dstBinding = 1,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &normalInfo,
+            });
 
             // Add displacement map if we have one
+            VkDescriptorImageInfo& displacementInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+                .sampler = textureSampler,
+                .imageView = defaultDescriptorImage->imageView,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            });
             if (material.displacementMap != nullptr) {
-                VkDescriptorImageInfo& imageInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
-                    .sampler = textureSampler,
-                    .imageView = material.displacementMap->imageView,
-                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                });
-                descriptorWrites.emplace_back(VkWriteDescriptorSet {
-                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    .dstSet = material.descriptorSet,
-                    .dstBinding = 2,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                    .pImageInfo = &imageInfo,
-                });
+                displacementInfo.imageView = material.displacementMap->imageView;
             }
+            descriptorWrites.emplace_back(VkWriteDescriptorSet {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = material.descriptorSet,
+                .dstBinding = 2,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &displacementInfo,
+            });
         }
         vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     }

@@ -321,7 +321,7 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
     };
     VK_ERR(vkCreatePipelineLayout(renderInstance->device, &simplePipelineLayoutInfo, nullptr, &simplePipelineLayout), "failed to create pipeline layout!");
 
-    std::array<VkDescriptorSetLayout, 3> envMirrorLayouts = { cameraInfoLayout, environmentLayout, simpleEnvMirrorLayout };
+    std::array<VkDescriptorSetLayout, 3> envMirrorLayouts = { cameraInfoLayout, simpleEnvMirrorLayout, environmentLayout };
     VkPipelineLayoutCreateInfo envMirrorPipelineLayoutInfo {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = envMirrorLayouts.size(),

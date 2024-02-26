@@ -1,19 +1,24 @@
 #version 450
 #include "common.glsl"
 
-layout(set = 1, binding = 0) uniform EnvTransform {
-    mat4 transform;
-} envTransform;
-layout(set = 1, binding = 1) uniform samplerCube envCubemap;
+layout(set = 1, binding = 0) uniform MaterialConstantsUBO {
+    MaterialConstants materialConstants;
+};
+layout(set = 1, binding = 1) uniform sampler2D normalMap;
+layout(set = 1, binding = 2) uniform sampler2D displacementMap;
 
-layout(location = 0) in vec4 fragColor;
-layout(location = 1) in vec3 fragNormal;
+layout(set = 2, binding = 0) uniform EnvTransform {
+    mat4 envTransform;
+};
+layout(set = 2, binding = 1) uniform samplerCube envCubemap;
+
+layout(location = 0) in VertexOutput frag;
 
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    vec3 normal = normalize(fragNormal);
+    vec3 normal = getNormal(frag, materialConstants, normalMap);
 
-    vec3 envLookupDir = (envTransform.transform * vec4(normal, 0.0)).xyz;
-    outColor = tonemap(fragColor * texture(envCubemap, envLookupDir));
+    vec3 envLookupDir = (envTransform * vec4(normal, 0.0)).xyz;
+    outColor = tonemap(frag.color * texture(envCubemap, envLookupDir));
 }
