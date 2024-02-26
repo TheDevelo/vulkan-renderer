@@ -249,25 +249,35 @@ private:
     }
 
     void createDescriptorSets() {
+        // Pre-calculate counts for descriptors
         uint32_t cameraDescs = 1;
         uint32_t environmentDescs = scene.environments.size();
+        uint32_t simpleEnvMirrorDescs = scene.materialCounts.simple + scene.materialCounts.environment + scene.materialCounts.mirror;
+
+        uint32_t uniformDescs = simpleEnvMirrorDescs;
+        uint32_t dynamicUniformDescs = cameraDescs + environmentDescs;
+        uint32_t combinedImageSamplerDescs = environmentDescs + 2 * simpleEnvMirrorDescs;
 
         // Create the descriptor pool
         // NOTE: Each type needs at least 1 descriptor to allocate, or else we get an error
-        std::array<VkDescriptorPoolSize, 2> poolSizes {{
+        std::array<VkDescriptorPoolSize, 3> poolSizes {{
+            {
+                .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .descriptorCount = uniformDescs,
+            },
             {
                 .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-                .descriptorCount = cameraDescs + environmentDescs,
+                .descriptorCount = dynamicUniformDescs,
             },
             {
                 .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = std::min(environmentDescs, 1u),
+                .descriptorCount = combinedImageSamplerDescs,
             }
         }};
 
         VkDescriptorPoolCreateInfo poolInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = cameraDescs + environmentDescs,
+            .maxSets = cameraDescs + environmentDescs + simpleEnvMirrorDescs,
             .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
             .pPoolSizes = poolSizes.data(),
         };
@@ -285,7 +295,7 @@ private:
         VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &cameraAllocInfo, &scene.cameraDescriptorSet), "failed to allocate descriptor sets!");
 
         // Allocate the environment descriptor sets
-        std::vector<VkDescriptorSetLayout> envLayouts(scene.environments.size(), materialPipelines->environmentLayout);
+        std::vector<VkDescriptorSetLayout> envLayouts(environmentDescs, materialPipelines->environmentLayout);
         VkDescriptorSetAllocateInfo envAllocInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
             .descriptorPool = descriptorPool,
@@ -296,63 +306,137 @@ private:
         std::vector<VkDescriptorSet> envDescriptorSets(environmentDescs);
         VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &envAllocInfo, envDescriptorSets.data()), "failed to allocate descriptor sets!");
 
+        // Allocate the Simple/Environment/Mirror material descriptor sets
+        std::vector<VkDescriptorSetLayout> simpleEnvMirrorLayouts(simpleEnvMirrorDescs, materialPipelines->simpleEnvMirrorLayout);
+        VkDescriptorSetAllocateInfo simpleEnvMirrorAllocInfo {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = descriptorPool,
+            .descriptorSetCount = simpleEnvMirrorDescs,
+            .pSetLayouts = simpleEnvMirrorLayouts.data(),
+        };
+
+        std::vector<VkDescriptorSet> simpleEnvMirrorDescriptorSets(simpleEnvMirrorDescs);
+        VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &simpleEnvMirrorAllocInfo, simpleEnvMirrorDescriptorSets.data()), "failed to allocate descriptor sets!");
+
         // Point our descriptor sets at the underlying resources
-        VkDescriptorBufferInfo cameraBufferInfo {
+        std::vector<VkWriteDescriptorSet> descriptorWrites;
+        std::vector<VkDescriptorBufferInfo> bufferWrites;
+        std::vector<VkDescriptorImageInfo> imageWrites;
+        // Need to reserve enough space for bufferWrites and imageWrites so that they don't move around in memory
+        bufferWrites.reserve(uniformDescs + dynamicUniformDescs);
+        imageWrites.reserve(combinedImageSamplerDescs);
+
+        VkDescriptorBufferInfo& cameraBufferInfo = bufferWrites.emplace_back(VkDescriptorBufferInfo {
             .buffer = cameraUniformBuffer->buffer,
             .offset = 0,
             .range = sizeof(CameraInfo),
-        };
+        });
+        descriptorWrites.emplace_back(VkWriteDescriptorSet {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = scene.cameraDescriptorSet,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+            .pBufferInfo = &cameraBufferInfo,
+        });
 
-        std::array<VkWriteDescriptorSet, 1> cameraDescriptorWrites {{
-            {
+        for (size_t i = 0; i < environmentDescs; i++) {
+            VkDescriptorBufferInfo& envBufferInfo = bufferWrites.emplace_back(VkDescriptorBufferInfo {
+                .buffer = environmentUniformBuffers[i].buffer,
+                .offset = 0,
+                .range = sizeof(Mat4<float>),
+            });
+            VkDescriptorImageInfo& imageInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+                .sampler = textureSampler,
+                .imageView = scene.environments[i].radiance->imageView,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            });
+
+            descriptorWrites.emplace_back(VkWriteDescriptorSet {
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .dstSet = scene.cameraDescriptorSet,
+                .dstSet = envDescriptorSets[i],
                 .dstBinding = 0,
                 .dstArrayElement = 0,
                 .descriptorCount = 1,
                 .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-                .pBufferInfo = &cameraBufferInfo,
+                .pBufferInfo = &envBufferInfo,
+            });
+            descriptorWrites.emplace_back(VkWriteDescriptorSet {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = envDescriptorSets[i],
+                .dstBinding = 1,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &imageInfo,
+            });
+
+            scene.environments[i].descriptorSet = envDescriptorSets[i];
+        }
+
+        VkBuffer materialConstantsBuffer = scene.getMaterialConstantsBuffer().buffer;
+        size_t simpleEnvMirrorIndex = 0;
+        for (size_t i = 0; i < scene.materials.size(); i++) {
+            Material& material = scene.materials[i];
+            if (material.type == MaterialType::SIMPLE || material.type == MaterialType::ENVIRONMENT || material.type == MaterialType::MIRROR) {
+                material.descriptorSet = simpleEnvMirrorDescriptorSets[simpleEnvMirrorIndex];
+                simpleEnvMirrorIndex += 1;
             }
-        }};
 
-        vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(cameraDescriptorWrites.size()), cameraDescriptorWrites.data(), 0, nullptr);
+            // Add the MaterialConstants binding
+            VkDescriptorBufferInfo& materialConstantsInfo = bufferWrites.emplace_back(VkDescriptorBufferInfo {
+                .buffer = materialConstantsBuffer,
+                .offset = sizeof(MaterialConstants) * i,
+                .range = sizeof(MaterialConstants),
+            });
+            descriptorWrites.emplace_back(VkWriteDescriptorSet {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = material.descriptorSet,
+                .dstBinding = 0,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .pBufferInfo = &materialConstantsInfo,
+            });
 
-        for (size_t i = 0; i < environmentDescs; i++) {
-            VkDescriptorBufferInfo envBufferInfo {
-                .buffer = environmentUniformBuffers[i].buffer,
-                .offset = 0,
-                .range = sizeof(Mat4<float>),
-            };
-            VkDescriptorImageInfo imageInfo {
-                .sampler = textureSampler,
-                .imageView = scene.environments[i].radiance->imageView,
-                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            };
-
-            std::array<VkWriteDescriptorSet, 2> descriptorWrites {{
-                {
+            // Add normal map if we have one
+            if (material.normalMap != nullptr) {
+                VkDescriptorImageInfo& imageInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+                    .sampler = textureSampler,
+                    .imageView = material.normalMap->imageView,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                });
+                descriptorWrites.emplace_back(VkWriteDescriptorSet {
                     .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    .dstSet = envDescriptorSets[i],
-                    .dstBinding = 0,
-                    .dstArrayElement = 0,
-                    .descriptorCount = 1,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-                    .pBufferInfo = &envBufferInfo,
-                },
-                {
-                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                    .dstSet = envDescriptorSets[i],
+                    .dstSet = material.descriptorSet,
                     .dstBinding = 1,
                     .dstArrayElement = 0,
                     .descriptorCount = 1,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .pImageInfo = &imageInfo,
-                },
-            }};
+                });
+            }
 
-            vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
-            scene.environments[i].descriptorSet = envDescriptorSets[i];
+            // Add displacement map if we have one
+            if (material.displacementMap != nullptr) {
+                VkDescriptorImageInfo& imageInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+                    .sampler = textureSampler,
+                    .imageView = material.displacementMap->imageView,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                });
+                descriptorWrites.emplace_back(VkWriteDescriptorSet {
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = material.descriptorSet,
+                    .dstBinding = 2,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &imageInfo,
+                });
+            }
         }
+        vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     }
 
     // Create the synchronization objects for rendering to our screen

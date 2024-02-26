@@ -13,6 +13,8 @@ public:
 
     CombinedBuffer(std::shared_ptr<RenderInstance>& renderInstanceIn, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memProps);
     ~CombinedBuffer();
+    CombinedBuffer(const CombinedBuffer&) = delete; // Disable copy constructor
+    CombinedBuffer(CombinedBuffer&& src);
 
 private:
     // Need to keep a copy of renderInstance for the destructor
@@ -27,6 +29,8 @@ public:
 
     CombinedImage(std::shared_ptr<RenderInstance>& renderInstanceIn, uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImageAspectFlags aspectFlags);
     ~CombinedImage();
+    CombinedImage(const CombinedImage&) = delete; // Disable copy constructor
+    CombinedImage(CombinedImage&& src);
 
 private:
     // Need to keep a copy of renderInstance for the destructor
@@ -42,6 +46,8 @@ public:
 
     CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstanceIn, uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImageAspectFlags aspectFlags);
     ~CombinedCubemap();
+    CombinedCubemap(const CombinedCubemap&) = delete; // Disable copy constructor
+    CombinedCubemap(CombinedCubemap&& src);
 
 private:
     // Need to keep a copy of renderInstance for the destructor

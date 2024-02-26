@@ -92,6 +92,10 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
     vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &cameraDescriptorSet, 1, &sceneRenderInfo.cameraDescriptorOffset);
     if (material.type != MaterialType::SIMPLE) {
         vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &environments[0].descriptorSet, 1, &sceneRenderInfo.environmentDescriptorOffset);
+        vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 2, 1, &material.descriptorSet, 0, nullptr);
+    }
+    else {
+        vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &material.descriptorSet, 0, nullptr);
     }
 
     if (mesh.vertexBufferIndex >= buffers.size()) {

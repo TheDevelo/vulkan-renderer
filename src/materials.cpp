@@ -35,17 +35,21 @@ MaterialPipelines::~MaterialPipelines() {
 
     vkDestroyDescriptorSetLayout(renderInstance->device, cameraInfoLayout, nullptr);
     vkDestroyDescriptorSetLayout(renderInstance->device, environmentLayout, nullptr);
+    vkDestroyDescriptorSetLayout(renderInstance->device, simpleEnvMirrorLayout, nullptr);
+    vkDestroyDescriptorSetLayout(renderInstance->device, lambertianLayout, nullptr);
+    vkDestroyDescriptorSetLayout(renderInstance->device, pbrLayout, nullptr);
 }
 
 void MaterialPipelines::createDescriptorSetLayouts() {
-    // ViewProj Matrix Descriptor Layout
-    VkDescriptorSetLayoutBinding cameraInfoLayoutBinding {
-        .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-        .descriptorCount = 1,
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-    };
-    std::array<VkDescriptorSetLayoutBinding, 1> cameraInfoBindings = { cameraInfoLayoutBinding };
+    // Camera Info Descriptor Layout
+    std::array<VkDescriptorSetLayoutBinding, 1> cameraInfoBindings = {{
+        {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        }
+    }};
 
     VkDescriptorSetLayoutCreateInfo cameraInfoLayoutInfo {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -55,21 +59,22 @@ void MaterialPipelines::createDescriptorSetLayouts() {
     VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &cameraInfoLayoutInfo, nullptr, &cameraInfoLayout), "failed to create descriptor set layout!");
 
     // Environment Descriptor Layout
-    VkDescriptorSetLayoutBinding environmentTransformLayoutBinding {
-        .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-        .descriptorCount = 1,
-        .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-        .pImmutableSamplers = nullptr,
-    };
-    VkDescriptorSetLayoutBinding environmentMapLayoutBinding {
-        .binding = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .descriptorCount = 1,
-        .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-        .pImmutableSamplers = nullptr,
-    };
-    std::array<VkDescriptorSetLayoutBinding, 2> environmentBindings = { environmentTransformLayoutBinding, environmentMapLayoutBinding };
+    std::array<VkDescriptorSetLayoutBinding, 2> environmentBindings = {{
+        {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        }
+    }};
 
     VkDescriptorSetLayoutCreateInfo environmentLayoutInfo {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -77,6 +82,130 @@ void MaterialPipelines::createDescriptorSetLayouts() {
         .pBindings = environmentBindings.data(),
     };
     VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &environmentLayoutInfo, nullptr, &environmentLayout), "failed to create descriptor set layout!");
+
+    // Material Descriptor Layout for Simple/Environment/Mirror
+    std::array<VkDescriptorSetLayoutBinding, 3> simpleEnvMirrorBindings = {{
+        {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 2,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        }
+    }};
+
+    VkDescriptorSetLayoutCreateInfo simpleEnvMirrorLayoutInfo {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = static_cast<uint32_t>(simpleEnvMirrorBindings.size()),
+        .pBindings = simpleEnvMirrorBindings.data(),
+    };
+    VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &simpleEnvMirrorLayoutInfo, nullptr, &simpleEnvMirrorLayout), "failed to create descriptor set layout!");
+
+    // Material Descriptor Layout for Lambertian
+    std::array<VkDescriptorSetLayoutBinding, 4> lambertianBindings = {{
+        {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 2,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 3,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        }
+    }};
+
+    VkDescriptorSetLayoutCreateInfo lambertianLayoutInfo {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = static_cast<uint32_t>(lambertianBindings.size()),
+        .pBindings = lambertianBindings.data(),
+    };
+    VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &lambertianLayoutInfo, nullptr, &lambertianLayout), "failed to create descriptor set layout!");
+
+    // Material Descriptor Layout for PBR
+    std::array<VkDescriptorSetLayoutBinding, 6> pbrBindings = {{
+        {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 2,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 3,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 4,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 5,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        }
+    }};
+
+    VkDescriptorSetLayoutCreateInfo pbrLayoutInfo {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = static_cast<uint32_t>(pbrBindings.size()),
+        .pBindings = pbrBindings.data(),
+    };
+    VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &pbrLayoutInfo, nullptr, &pbrLayout), "failed to create descriptor set layout!");
 }
 
 // Helper to create a shader module from a SPIRV array
@@ -182,20 +311,21 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
     // Create the render pipeline layouts
     // =========================================================================
 
+    std::array<VkDescriptorSetLayout, 2> simpleLayouts = { cameraInfoLayout, simpleEnvMirrorLayout };
     VkPipelineLayoutCreateInfo simplePipelineLayoutInfo {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 1,
-        .pSetLayouts = &cameraInfoLayout,
+        .setLayoutCount = simpleLayouts.size(),
+        .pSetLayouts = simpleLayouts.data(),
         .pushConstantRangeCount = 1,
         .pPushConstantRanges = &pushConstantInfo,
     };
     VK_ERR(vkCreatePipelineLayout(renderInstance->device, &simplePipelineLayoutInfo, nullptr, &simplePipelineLayout), "failed to create pipeline layout!");
 
-    VkDescriptorSetLayout envMirrorLayouts[] = { cameraInfoLayout, environmentLayout };
+    std::array<VkDescriptorSetLayout, 3> envMirrorLayouts = { cameraInfoLayout, environmentLayout, simpleEnvMirrorLayout };
     VkPipelineLayoutCreateInfo envMirrorPipelineLayoutInfo {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 2,
-        .pSetLayouts = envMirrorLayouts,
+        .setLayoutCount = envMirrorLayouts.size(),
+        .pSetLayouts = envMirrorLayouts.data(),
         .pushConstantRangeCount = 1,
         .pPushConstantRanges = &pushConstantInfo,
     };

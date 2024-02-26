@@ -21,6 +21,9 @@ uint32_t findMemoryType(RenderInstance const& renderInstance, uint32_t typeFilte
     PANIC("failed to find suitable memory type!");
 }
 
+// =============================================================================
+// CombinedBuffer
+// =============================================================================
 CombinedBuffer::CombinedBuffer(std::shared_ptr<RenderInstance>& renderInstanceIn, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memProps) : renderInstance(renderInstanceIn) {
     createBuffer(*renderInstance, size, usage, memProps, buffer, bufferMemory);
 }
@@ -50,10 +53,22 @@ void createBuffer(RenderInstance const& renderInstance, VkDeviceSize size, VkBuf
 }
 
 CombinedBuffer::~CombinedBuffer() {
-    vkDestroyBuffer(renderInstance->device, buffer, nullptr);
-    vkFreeMemory(renderInstance->device, bufferMemory, nullptr);
+    if (renderInstance != nullptr) {
+        vkDestroyBuffer(renderInstance->device, buffer, nullptr);
+        vkFreeMemory(renderInstance->device, bufferMemory, nullptr);
+    }
 }
 
+CombinedBuffer::CombinedBuffer(CombinedBuffer&& src) {
+    buffer = src.buffer;
+    bufferMemory = src.bufferMemory;
+    renderInstance = src.renderInstance;
+    src.renderInstance = nullptr; // Set renderInstance to nullptr to indicate the original has been deactivated
+}
+
+// =============================================================================
+// CombinedImage
+// =============================================================================
 CombinedImage::CombinedImage(std::shared_ptr<RenderInstance>& renderInstanceIn, uint32_t width, uint32_t height, VkFormat format,
                              VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImageAspectFlags aspectFlags) : renderInstance(renderInstanceIn) {
     createImage(*renderInstance, width, height, format, tiling, usage, memProps, image, imageMemory);
@@ -92,11 +107,24 @@ void createImage(RenderInstance const& renderInstance, uint32_t width, uint32_t 
 }
 
 CombinedImage::~CombinedImage() {
-    vkDestroyImageView(renderInstance->device, imageView, nullptr);
-    vkDestroyImage(renderInstance->device, image, nullptr);
-    vkFreeMemory(renderInstance->device, imageMemory, nullptr);
+    if (renderInstance != nullptr) {
+        vkDestroyImageView(renderInstance->device, imageView, nullptr);
+        vkDestroyImage(renderInstance->device, image, nullptr);
+        vkFreeMemory(renderInstance->device, imageMemory, nullptr);
+    }
 }
 
+CombinedImage::CombinedImage(CombinedImage&& src) {
+    image = src.image;
+    imageMemory = src.imageMemory;
+    imageView = src.imageView;
+    renderInstance = src.renderInstance;
+    src.renderInstance = nullptr; // Set renderInstance to nullptr to indicate the original has been deactivated
+}
+
+// =============================================================================
+// CombinedCubemap
+// =============================================================================
 CombinedCubemap::CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstanceIn, uint32_t width, uint32_t height,
                                  VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImageAspectFlags aspectFlags) : renderInstance(renderInstanceIn) {
     VkImageCreateInfo imageInfo {
@@ -153,9 +181,19 @@ CombinedCubemap::CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstance
 }
 
 CombinedCubemap::~CombinedCubemap() {
-    vkDestroyImageView(renderInstance->device, imageView, nullptr);
-    vkDestroyImage(renderInstance->device, image, nullptr);
-    vkFreeMemory(renderInstance->device, imageMemory, nullptr);
+    if (renderInstance != nullptr) {
+        vkDestroyImageView(renderInstance->device, imageView, nullptr);
+        vkDestroyImage(renderInstance->device, image, nullptr);
+        vkFreeMemory(renderInstance->device, imageMemory, nullptr);
+    }
+}
+
+CombinedCubemap::CombinedCubemap(CombinedCubemap&& src) {
+    image = src.image;
+    imageMemory = src.imageMemory;
+    imageView = src.imageView;
+    renderInstance = src.renderInstance;
+    src.renderInstance = nullptr; // Set renderInstance to nullptr to indicate the original has been deactivated
 }
 
 // Buffer/Image manipulation helpers

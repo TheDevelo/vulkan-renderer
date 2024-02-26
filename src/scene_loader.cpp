@@ -389,6 +389,9 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     materialIdMap.erase(0);
 
     // Iterate through all the materials and construct their Material representation
+    materialCounts.simple = 1; // Have 1 simple material from the default material
+    materialCounts.environment = 0;
+    materialCounts.mirror = 0;
     for (auto idPair : materialIdMap) {
         uint32_t s72Id = idPair.first;
         json::object const& materialObj = sceneArr[s72Id].as_obj();
@@ -423,12 +426,15 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
         if (materialObj.contains("simple")) {
             material.type = MaterialType::SIMPLE;
+            materialCounts.simple += 1;
         }
         else if (materialObj.contains("environment")) {
             material.type = MaterialType::ENVIRONMENT;
+            materialCounts.environment += 1;
         }
         else if (materialObj.contains("mirror")) {
             material.type = MaterialType::MIRROR;
+            materialCounts.mirror += 1;
         }
         else {
             PANIC("Scene loading error: material does not contain a valid type");
@@ -436,6 +442,9 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
         materials.push_back(std::move(material));
     }
+
+    // Build a buffer containing a MaterialConstants for each material
+    buildMaterialConstantsBuffer(renderInstance);
 
     // Iterate through all the materials and construct their Material representation
     environments.reserve(environmentIdMap.size());
@@ -606,4 +615,54 @@ void Scene::calculateAncestors() {
     for (uint32_t rootNode : sceneRoots) {
         traverse(traverse, rootNode);
     }
+}
+
+CombinedBuffer const& Scene::getMaterialConstantsBuffer() {
+    return buffers[materialConstantsBufferIndex];
+}
+
+void Scene::buildMaterialConstantsBuffer(std::shared_ptr<RenderInstance>& renderInstance) {
+    uint32_t size = materials.size() * sizeof(MaterialConstants);
+
+    // Create the appropriate buffers
+    CombinedBuffer& materialConstantsBuffer = buffers.emplace_back(renderInstance, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    CombinedBuffer stagingBuffer = CombinedBuffer(renderInstance, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    materialConstantsBufferIndex = buffers.size() - 1;
+
+    // Fill the staging buffer with the appropriate material constants
+    void* stagingBufferMap;
+    vkMapMemory(renderInstance->device, stagingBuffer.bufferMemory, 0, size, 0, &stagingBufferMap);
+    for (size_t i = 0; i < materials.size(); i++) {
+        Material const& material = materials[i];
+        MaterialConstants* dest = reinterpret_cast<MaterialConstants*>(stagingBufferMap) + i;
+
+        if (material.normalMap == nullptr) {
+            dest->useNormalMap = false;
+        }
+        else {
+            dest->useNormalMap = true;
+        }
+
+        if (material.displacementMap == nullptr) {
+            dest->useDisplacementMap = false;
+        }
+        else {
+            dest->useDisplacementMap = true;
+        }
+    }
+    vkUnmapMemory(renderInstance->device, stagingBuffer.bufferMemory);
+
+    // Copy from staging buffer to vertex buffer
+    VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
+    BufferCopy bufferCopyInfos[] = {
+        {
+            .srcBuffer = stagingBuffer.buffer,
+            .srcOffset = 0,
+            .dstBuffer = materialConstantsBuffer.buffer,
+            .dstOffset = 0,
+            .size = size,
+        },
+    };
+    copyBuffers(commandBuffer, bufferCopyInfos, 1);
+    endSingleUseCBuffer(*renderInstance, commandBuffer);
 }

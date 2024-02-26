@@ -25,6 +25,9 @@ public:
     // Descriptor set layouts
     VkDescriptorSetLayout cameraInfoLayout;
     VkDescriptorSetLayout environmentLayout;
+    VkDescriptorSetLayout simpleEnvMirrorLayout;
+    VkDescriptorSetLayout lambertianLayout;
+    VkDescriptorSetLayout pbrLayout;
 
 private:
     void createDescriptorSetLayouts();
@@ -87,4 +90,18 @@ struct Vertex {
 
         return attributeDescriptions;
     }
+};
+
+// Constant material values used for the various material properties that don't have a texture map provided
+// Not all materials use all of these values, but each material uses at least one
+// There is no point in compacting further since these get used as UBOs, and thus must be 256-byte aligned
+struct alignas(256) MaterialConstants {
+    Vec3<float> albedo;
+    float roughness;
+    float metalness;
+    bool useNormalMap;
+    bool useDisplacementMap;
+    bool useAlbedoMap;
+    bool useRoughnessMap;
+    bool useMetalnessMap;
 };

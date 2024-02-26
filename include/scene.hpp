@@ -125,6 +125,7 @@ struct Material {
     // Normal and displacement maps. nullptr means unspecified
     std::unique_ptr<CombinedImage> normalMap;
     std::unique_ptr<CombinedImage> displacementMap;
+    VkDescriptorSet descriptorSet;
 
     MaterialType type;
 };
@@ -173,12 +174,16 @@ public:
     explicit Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const& filename);
 
     void renderScene(SceneRenderInfo const& sceneRenderInfo);
+
     void updateCameraTransform(RenderInstance const& renderInstance); // Need render instance for the user camera aspect ratio calculation
     void updateEnvironmentTransforms();
+
     void moveUserCamera(UserCameraMoveEvent moveAmount, float dt);
     void rotateUserCamera(UserCameraRotateEvent rotateAmount);
     void updateAnimation(float time);
     void switchCameraByName(std::string name);
+
+    CombinedBuffer const& getMaterialConstantsBuffer();
 
     // Cameras are public so that the "outside" can change the selected camera
     uint32_t selectedCamera = 0;
@@ -187,6 +192,7 @@ public:
 
     // Material and environment info used to create the descriptor pool, allocate descriptors, and update them
     MaterialCounts materialCounts;
+    std::vector<Material> materials;
     std::vector<Environment> environments;
 
     float minAnimTime;
@@ -203,6 +209,7 @@ private:
 
     std::vector<Vertex> loadVerticesFromAttributes(json::object const& attributeJson, uint32_t vertexCount, std::filesystem::path directory);
     void buildCombinedVertexBuffer(std::shared_ptr<RenderInstance>& renderInstance, std::vector<std::vector<Vertex>> const& meshVertices);
+    void buildMaterialConstantsBuffer(std::shared_ptr<RenderInstance>& renderInstance);
     bool computeNodeBBox(uint32_t nodeId, std::set<uint32_t>& dynamicNodes, std::set<uint32_t>& visitedNodes);
     void calculateAncestors();
 
@@ -212,10 +219,11 @@ private:
     std::vector<Node> nodes;
     std::vector<Mesh> meshes;
     std::vector<Driver> drivers;
-    std::vector<Material> materials;
     std::vector<CombinedBuffer> buffers;
 
     // We store a separate struct for the culling camera, which simplifies culling logic & makes debug mode possible
     CullingCamera cullingCamera;
     UserCamera userCamera;
+
+    uint32_t materialConstantsBufferIndex;
 };
