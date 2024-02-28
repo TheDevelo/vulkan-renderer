@@ -117,6 +117,7 @@ enum class MaterialType {
     SIMPLE,
     ENVIRONMENT,
     MIRROR,
+    LAMBERTIAN,
 };
 
 struct Material {
@@ -125,6 +126,10 @@ struct Material {
     // Normal and displacement maps. nullptr means unspecified
     std::unique_ptr<CombinedImage> normalMap;
     std::unique_ptr<CombinedImage> displacementMap;
+
+    // Albedo for Lambertian/PBR
+    std::variant<Vec3<float>, std::unique_ptr<CombinedImage>> albedoMap;
+
     VkDescriptorSet descriptorSet;
 
     MaterialType type;
@@ -134,6 +139,7 @@ struct Environment {
     std::string name;
 
     std::unique_ptr<CombinedCubemap> radiance;
+    std::unique_ptr<CombinedCubemap> lambertian;
 
     // Ancestor path to Environment, so that we can easily calculate the appropriate transforms
     std::vector<uint32_t> ancestors;
@@ -166,6 +172,8 @@ struct MaterialCounts {
     uint32_t simple;
     uint32_t environment;
     uint32_t mirror;
+    uint32_t lambertian;
+    uint32_t pbr;
 };
 
 class Scene {

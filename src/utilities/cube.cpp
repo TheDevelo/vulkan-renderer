@@ -84,7 +84,7 @@ int main(int argc, char** argv) {
     convertRGBtoRGBE(lambertianCube.data(), lambertianCubeOut.data(), lambertianSize * lambertianSize * 6);
 
     // Write out
-    stbi_write_png("cube-out.png", lambertianSize, lambertianSize * 6, 4, lambertianCubeOut.data(), lambertianSize * 4);
+    stbi_write_png("cube.lambertian.png", lambertianSize, lambertianSize * 6, 4, lambertianCubeOut.data(), lambertianSize * 4);
 
     return 0;
 }

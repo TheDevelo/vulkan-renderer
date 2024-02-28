@@ -260,10 +260,11 @@ private:
         uint32_t cameraDescs = 1;
         uint32_t environmentDescs = scene.environments.size();
         uint32_t simpleEnvMirrorDescs = scene.materialCounts.simple + scene.materialCounts.environment + scene.materialCounts.mirror;
+        uint32_t lambertianDescs = scene.materialCounts.lambertian;
 
-        uint32_t uniformDescs = simpleEnvMirrorDescs;
+        uint32_t uniformDescs = simpleEnvMirrorDescs + lambertianDescs;
         uint32_t dynamicUniformDescs = cameraDescs + environmentDescs;
-        uint32_t combinedImageSamplerDescs = environmentDescs + 2 * simpleEnvMirrorDescs;
+        uint32_t combinedImageSamplerDescs = 2 * environmentDescs + 2 * simpleEnvMirrorDescs + 3 * lambertianDescs;
 
         // Create the descriptor pool
         // NOTE: Each type needs at least 1 descriptor to allocate, or else we get an error
@@ -284,7 +285,7 @@ private:
 
         VkDescriptorPoolCreateInfo poolInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = cameraDescs + environmentDescs + simpleEnvMirrorDescs,
+            .maxSets = cameraDescs + environmentDescs + simpleEnvMirrorDescs + lambertianDescs,
             .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
             .pPoolSizes = poolSizes.data(),
         };
@@ -325,6 +326,18 @@ private:
         std::vector<VkDescriptorSet> simpleEnvMirrorDescriptorSets(simpleEnvMirrorDescs);
         VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &simpleEnvMirrorAllocInfo, simpleEnvMirrorDescriptorSets.data()), "failed to allocate descriptor sets!");
 
+        // Allocate the Lambertian material descriptor sets
+        std::vector<VkDescriptorSetLayout> lambertianLayouts(lambertianDescs, materialPipelines->lambertianLayout);
+        VkDescriptorSetAllocateInfo lambertianAllocInfo {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = descriptorPool,
+            .descriptorSetCount = lambertianDescs,
+            .pSetLayouts = lambertianLayouts.data(),
+        };
+
+        std::vector<VkDescriptorSet> lambertianDescriptorSets(lambertianDescs);
+        VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &lambertianAllocInfo, lambertianDescriptorSets.data()), "failed to allocate descriptor sets!");
+
         // Point our descriptor sets at the underlying resources
         std::vector<VkWriteDescriptorSet> descriptorWrites;
         std::vector<VkDescriptorBufferInfo> bufferWrites;
@@ -354,9 +367,14 @@ private:
                 .offset = 0,
                 .range = sizeof(Mat4<float>),
             });
-            VkDescriptorImageInfo& imageInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+            VkDescriptorImageInfo& radianceInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
                 .sampler = textureSampler,
                 .imageView = scene.environments[i].radiance->imageView,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            });
+            VkDescriptorImageInfo& lambertianInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+                .sampler = textureSampler,
+                .imageView = scene.environments[i].lambertian->imageView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             });
 
@@ -376,7 +394,16 @@ private:
                 .dstArrayElement = 0,
                 .descriptorCount = 1,
                 .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .pImageInfo = &imageInfo,
+                .pImageInfo = &radianceInfo,
+            });
+            descriptorWrites.emplace_back(VkWriteDescriptorSet {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = envDescriptorSets[i],
+                .dstBinding = 2,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &lambertianInfo,
             });
 
             scene.environments[i].descriptorSet = envDescriptorSets[i];
@@ -384,11 +411,16 @@ private:
 
         VkBuffer materialConstantsBuffer = scene.getMaterialConstantsBuffer().buffer;
         size_t simpleEnvMirrorIndex = 0;
+        size_t lambertianIndex = 0;
         for (size_t i = 0; i < scene.materials.size(); i++) {
             Material& material = scene.materials[i];
             if (material.type == MaterialType::SIMPLE || material.type == MaterialType::ENVIRONMENT || material.type == MaterialType::MIRROR) {
                 material.descriptorSet = simpleEnvMirrorDescriptorSets[simpleEnvMirrorIndex];
                 simpleEnvMirrorIndex += 1;
+            }
+            else if (material.type == MaterialType::LAMBERTIAN) {
+                material.descriptorSet = lambertianDescriptorSets[lambertianIndex];
+                lambertianIndex += 1;
             }
 
             // Add the MaterialConstants binding
@@ -444,6 +476,27 @@ private:
                 .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .pImageInfo = &displacementInfo,
             });
+
+            if (material.type == MaterialType::LAMBERTIAN) {
+                // Add albedo map if we have one
+                VkDescriptorImageInfo& albedoInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+                    .sampler = textureSampler,
+                    .imageView = defaultDescriptorImage->imageView,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                });
+                if (holds_alternative<std::unique_ptr<CombinedImage>>(material.albedoMap)) {
+                    albedoInfo.imageView = get<std::unique_ptr<CombinedImage>>(material.albedoMap)->imageView;
+                }
+                descriptorWrites.emplace_back(VkWriteDescriptorSet {
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = material.descriptorSet,
+                    .dstBinding = 3,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &albedoInfo,
+                });
+            }
         }
         vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     }

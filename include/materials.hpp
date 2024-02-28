@@ -17,10 +17,12 @@ public:
     VkPipeline simplePipeline;
     VkPipeline environmentPipeline;
     VkPipeline mirrorPipeline;
+    VkPipeline lambertianPipeline;
 
     // Pipeline layouts
     VkPipelineLayout simplePipelineLayout;
     VkPipelineLayout envMirrorPipelineLayout; // Environment and Mirror share the same layout
+    VkPipelineLayout lambertianPipelineLayout;
 
     // Descriptor set layouts
     VkDescriptorSetLayout cameraInfoLayout;

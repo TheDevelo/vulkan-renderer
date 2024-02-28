@@ -85,6 +85,10 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
         layout = sceneRenderInfo.pipelines.envMirrorPipelineLayout;
         vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.mirrorPipeline);
     }
+    else if (material.type == MaterialType::LAMBERTIAN) {
+        layout = sceneRenderInfo.pipelines.lambertianPipelineLayout;
+        vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.lambertianPipeline);
+    }
     else {
         PANIC("mesh contains invalid material!");
     }

@@ -19,6 +19,9 @@ const uint32_t environmentFragShaderArray[] =
 const uint32_t mirrorFragShaderArray[] =
 #include "shaders/mirror.frag.inl"
 ;
+const uint32_t lambertianFragShaderArray[] =
+#include "shaders/lambertian.frag.inl"
+;
 
 MaterialPipelines::MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn, VkRenderPass renderPass) : renderInstance(renderInstanceIn) {
     createDescriptorSetLayouts();
@@ -29,9 +32,11 @@ MaterialPipelines::~MaterialPipelines() {
     vkDestroyPipeline(renderInstance->device, simplePipeline, nullptr);
     vkDestroyPipeline(renderInstance->device, environmentPipeline, nullptr);
     vkDestroyPipeline(renderInstance->device, mirrorPipeline, nullptr);
+    vkDestroyPipeline(renderInstance->device, lambertianPipeline, nullptr);
 
     vkDestroyPipelineLayout(renderInstance->device, simplePipelineLayout, nullptr);
     vkDestroyPipelineLayout(renderInstance->device, envMirrorPipelineLayout, nullptr);
+    vkDestroyPipelineLayout(renderInstance->device, lambertianPipelineLayout, nullptr);
 
     vkDestroyDescriptorSetLayout(renderInstance->device, cameraInfoLayout, nullptr);
     vkDestroyDescriptorSetLayout(renderInstance->device, environmentLayout, nullptr);
@@ -59,7 +64,7 @@ void MaterialPipelines::createDescriptorSetLayouts() {
     VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &cameraInfoLayoutInfo, nullptr, &cameraInfoLayout), "failed to create descriptor set layout!");
 
     // Environment Descriptor Layout
-    std::array<VkDescriptorSetLayoutBinding, 2> environmentBindings = {{
+    std::array<VkDescriptorSetLayoutBinding, 3> environmentBindings = {{
         {
             .binding = 0,
             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
@@ -69,6 +74,13 @@ void MaterialPipelines::createDescriptorSetLayouts() {
         },
         {
             .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 2,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -331,6 +343,16 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
     };
     VK_ERR(vkCreatePipelineLayout(renderInstance->device, &envMirrorPipelineLayoutInfo, nullptr, &envMirrorPipelineLayout), "failed to create pipeline layout!");
 
+    std::array<VkDescriptorSetLayout, 3> lambertianLayouts = { cameraInfoLayout, lambertianLayout, environmentLayout };
+    VkPipelineLayoutCreateInfo lambertianPipelineLayoutInfo {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = lambertianLayouts.size(),
+        .pSetLayouts = lambertianLayouts.data(),
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &pushConstantInfo,
+    };
+    VK_ERR(vkCreatePipelineLayout(renderInstance->device, &lambertianPipelineLayoutInfo, nullptr, &lambertianPipelineLayout), "failed to create pipeline layout!");
+
     // =========================================================================
     // Create the render pipelines
     // =========================================================================
@@ -340,6 +362,7 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
     VkShaderModule simpleFragShaderModule = createShaderModule(*renderInstance, simpleFragShaderArray, sizeof(simpleFragShaderArray));
     VkShaderModule environmentFragShaderModule = createShaderModule(*renderInstance, environmentFragShaderArray, sizeof(environmentFragShaderArray));
     VkShaderModule mirrorFragShaderModule = createShaderModule(*renderInstance, mirrorFragShaderArray, sizeof(mirrorFragShaderArray));
+    VkShaderModule lambertianFragShaderModule = createShaderModule(*renderInstance, lambertianFragShaderArray, sizeof(lambertianFragShaderArray));
 
     // Create the shader stages for our pipeline
     VkPipelineShaderStageCreateInfo vertShaderInfo {
@@ -366,9 +389,16 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
         .module = mirrorFragShaderModule,
         .pName = "main",
     };
+    VkPipelineShaderStageCreateInfo lambertianFragShaderInfo {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = lambertianFragShaderModule,
+        .pName = "main",
+    };
     VkPipelineShaderStageCreateInfo simpleShaderStages[] = { vertShaderInfo, simpleFragShaderInfo };
     VkPipelineShaderStageCreateInfo environmentShaderStages[] = { vertShaderInfo, environmentFragShaderInfo };
     VkPipelineShaderStageCreateInfo mirrorShaderStages[] = { vertShaderInfo, mirrorFragShaderInfo };
+    VkPipelineShaderStageCreateInfo lambertianShaderStages[] = { vertShaderInfo, lambertianFragShaderInfo };
 
     // Finally create the render pipeline
     VkGraphicsPipelineCreateInfo renderPipelineInfos[] = {
@@ -429,20 +459,41 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
             .basePipelineHandle = VK_NULL_HANDLE,
             .basePipelineIndex = -1,
         },
+        // Lambertian Material
+        {
+            .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+            .stageCount = 2,
+            .pStages = lambertianShaderStages,
+            .pVertexInputState = &vertexInputInfo,
+            .pInputAssemblyState = &inputAssemblyInfo,
+            .pViewportState = &viewportStateInfo,
+            .pRasterizationState = &rasterizerStateInfo,
+            .pMultisampleState = &multisamplingInfo,
+            .pDepthStencilState = &depthStencilInfo,
+            .pColorBlendState = &colorBlendInfo,
+            .pDynamicState = &dynamicStateInfo,
+            .layout = lambertianPipelineLayout,
+            .renderPass = renderPass,
+            .subpass = 0,
+            .basePipelineHandle = VK_NULL_HANDLE,
+            .basePipelineIndex = -1,
+        },
     };
-    std::array<VkPipeline, 3> pipelineTargets;
+    std::array<VkPipeline, 4> pipelineTargets;
 
     // This call takes in multiple pipelines to create. I'm guessing real apps need a bunch of pipelines, so they made a call to batch compile them.
     // In fact, this is probably where "shader compilation" and "shader caches" come in for games I play. Neat!
-    VK_ERR(vkCreateGraphicsPipelines(renderInstance->device, VK_NULL_HANDLE, 3, renderPipelineInfos, nullptr, pipelineTargets.data()), "failed to create graphics pipeline!");
+    VK_ERR(vkCreateGraphicsPipelines(renderInstance->device, VK_NULL_HANDLE, 4, renderPipelineInfos, nullptr, pipelineTargets.data()), "failed to create graphics pipeline!");
 
     simplePipeline = pipelineTargets[0];
     environmentPipeline = pipelineTargets[1];
     mirrorPipeline = pipelineTargets[2];
+    lambertianPipeline = pipelineTargets[3];
 
     // Clean up our shader modules now that we are finished with them (the pipeline keeps its own copy)
     vkDestroyShaderModule(renderInstance->device, vertShaderModule, nullptr);
     vkDestroyShaderModule(renderInstance->device, simpleFragShaderModule, nullptr);
     vkDestroyShaderModule(renderInstance->device, environmentFragShaderModule, nullptr);
     vkDestroyShaderModule(renderInstance->device, mirrorFragShaderModule, nullptr);
+    vkDestroyShaderModule(renderInstance->device, lambertianFragShaderModule, nullptr);
 }

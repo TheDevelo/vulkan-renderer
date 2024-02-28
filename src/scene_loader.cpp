@@ -392,6 +392,8 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     materialCounts.simple = 1; // Have 1 simple material from the default material
     materialCounts.environment = 0;
     materialCounts.mirror = 0;
+    materialCounts.lambertian = 0;
+    materialCounts.pbr = 0;
     for (auto idPair : materialIdMap) {
         uint32_t s72Id = idPair.first;
         json::object const& materialObj = sceneArr[s72Id].as_obj();
@@ -400,6 +402,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             .name = materialObj.at("name").as_str(),
             .normalMap = nullptr,
             .displacementMap = nullptr,
+            .albedoMap = Vec3<float>(1.0),
         };
 
         // Load the normal & displacement maps
@@ -436,6 +439,29 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             material.type = MaterialType::MIRROR;
             materialCounts.mirror += 1;
         }
+        else if (materialObj.contains("lambertian") && materialObj.at("lambertian").is_obj()) {
+            material.type = MaterialType::LAMBERTIAN;
+            materialCounts.lambertian += 1;
+            json::object const& lambertianObj = materialObj.at("lambertian").as_obj();
+
+            if (lambertianObj.contains("albedo") && lambertianObj.at("albedo").is_arr()) {
+                json::array const& albedoArr = lambertianObj.at("albedo").as_arr();
+                if (albedoArr.size() != 3 || !albedoArr[0].is_num() || !albedoArr[1].is_num() || !albedoArr[2].is_num()) {
+                    PANIC("Scene loading error: invalid albedo vector");
+                }
+                material.albedoMap = Vec3<float>(albedoArr[0].as_num(), albedoArr[1].as_num(), albedoArr[2].as_num());
+            }
+            else if (lambertianObj.contains("albedo") && lambertianObj.at("albedo").is_obj()) {
+                // TODO: Make loading a texture a helper
+                json::object const& albedoObj = lambertianObj.at("albedo").as_obj();
+                if (!albedoObj.contains("src") || !albedoObj.at("src").is_str()) {
+                    PANIC("Scene loading error: albedo map does not have a source");
+                }
+
+                std::filesystem::path filePath = directory / albedoObj.at("src").as_str();
+                material.albedoMap = loadImage(renderInstance, filePath.string());
+            }
+        }
         else {
             PANIC("Scene loading error: material does not contain a valid type");
         }
@@ -468,6 +494,10 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
         std::filesystem::path filePath = directory / radianceObj.at("src").as_str();
         env.radiance = loadCubemap(renderInstance, filePath.string());
+
+        // Also go ahead and load the pre-integrated Lambertian cubemap
+        filePath.replace_extension(".lambertian.png");
+        env.lambertian = loadCubemap(renderInstance, filePath.string());
 
         environments.push_back(std::move(env));
     }
@@ -648,6 +678,16 @@ void Scene::buildMaterialConstantsBuffer(std::shared_ptr<RenderInstance>& render
         }
         else {
             dest->useDisplacementMap = true;
+        }
+
+        if (holds_alternative<Vec3<float>>(material.albedoMap)) {
+            // Albedo is a constant
+            dest->useAlbedoMap = false;
+            dest->albedo = get<Vec3<float>>(material.albedoMap);
+        }
+        else {
+            // Albedo uses an actual map
+            dest->useAlbedoMap = true;
         }
     }
     vkUnmapMemory(renderInstance->device, stagingBuffer.bufferMemory);
