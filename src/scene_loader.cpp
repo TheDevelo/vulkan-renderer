@@ -414,7 +414,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             // TODO: Verify that the texture is actually a 2D RGB texture
 
             std::filesystem::path filePath = directory / normalMapObj.at("src").as_str();
-            material.normalMap = loadImage(renderInstance, filePath.string());
+            material.normalMap = loadImage(renderInstance, filePath.string(), VK_FORMAT_R8G8B8A8_UNORM);
         }
         if (materialObj.contains("displacementMap") && materialObj.at("displacementMap").is_obj()) {
             json::object const& dispMapObj = materialObj.at("displacementMap").as_obj();
@@ -424,7 +424,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             // TODO: Verify that the texture is actually a 2D RGB texture
 
             std::filesystem::path filePath = directory / dispMapObj.at("src").as_str();
-            material.displacementMap = loadImage(renderInstance, filePath.string());
+            material.displacementMap = loadImage(renderInstance, filePath.string(), VK_FORMAT_R8G8B8A8_UNORM);
         }
 
         if (materialObj.contains("simple")) {
@@ -459,7 +459,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
                 }
 
                 std::filesystem::path filePath = directory / albedoObj.at("src").as_str();
-                material.albedoMap = loadImage(renderInstance, filePath.string());
+                material.albedoMap = loadImage(renderInstance, filePath.string(), VK_FORMAT_R8G8B8A8_SRGB);
             }
         }
         else {

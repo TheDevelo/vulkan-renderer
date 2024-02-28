@@ -75,5 +75,5 @@ void createImage(RenderInstance const& renderInstance, uint32_t width, uint32_t 
                  VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImage& image, VkDeviceMemory& imageMemory);
 
 // Texture/Cubemap loading helpers
-std::unique_ptr<CombinedImage> loadImage(std::shared_ptr<RenderInstance>& renderInstance, std::string const& path);
+std::unique_ptr<CombinedImage> loadImage(std::shared_ptr<RenderInstance>& renderInstance, std::string const& path, VkFormat format);
 std::unique_ptr<CombinedCubemap> loadCubemap(std::shared_ptr<RenderInstance>& renderInstance, std::string const& path);

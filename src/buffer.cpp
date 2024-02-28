@@ -305,7 +305,8 @@ void copyImageToBuffer(VkCommandBuffer commandBuffer, VkImage image, VkBuffer bu
 }
 
 // Image load helpers
-std::unique_ptr<CombinedImage> loadImage(std::shared_ptr<RenderInstance>& renderInstance, std::string const& path) {
+// NOTE: format should be 4 bytes wide, to match the 4 bytes per pixel of the original image
+std::unique_ptr<CombinedImage> loadImage(std::shared_ptr<RenderInstance>& renderInstance, std::string const& path, VkFormat format) {
     // Load the texture
     int textureWidth, textureHeight, textureChannels;
     stbi_uc* pixels = stbi_load(path.c_str(), &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);
@@ -326,15 +327,15 @@ std::unique_ptr<CombinedImage> loadImage(std::shared_ptr<RenderInstance>& render
     stbi_image_free(pixels);
 
     // Create the GPU-side image
-    std::unique_ptr<CombinedImage> image = std::make_unique<CombinedImage>(renderInstance, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), VK_FORMAT_R8G8B8A8_UNORM,
+    std::unique_ptr<CombinedImage> image = std::make_unique<CombinedImage>(renderInstance, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), format,
                                                                            VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 
     // Copy staging buffer to our image and prepare it for shader reads
     VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
 
-    transitionImageLayout(commandBuffer, image->image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    transitionImageLayout(commandBuffer, image->image, format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     copyBufferToImage(commandBuffer, stagingBuffer.buffer, image->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), 1);
-    transitionImageLayout(commandBuffer, image->image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    transitionImageLayout(commandBuffer, image->image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     endSingleUseCBuffer(*renderInstance, commandBuffer);
 
