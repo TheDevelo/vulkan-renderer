@@ -1,5 +1,6 @@
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
 #include <fstream>
 #include <cmath>
 
@@ -86,6 +87,7 @@ std::vector<uint8_t> readFile(const std::string& filename) {
     return buffer;
 }
 
+// RGBE conversion functions inspired 15-466 image based lighting code
 // NOTE: I'm assuming the destination RGB has an alpha channel, since R32G32B32_SFLOAT seems like it is not commonly supported
 // R32G32B32A32 is, so I use that instead. Support stats per https://vulkan.gpuinfo.org/.
 void convertRGBEtoRGB(uint8_t* src, float* dst, uint32_t pixelCount) {
@@ -93,7 +95,7 @@ void convertRGBEtoRGB(uint8_t* src, float* dst, uint32_t pixelCount) {
         uint8_t* srcPixel = src + pixel * 4;
         float* dstPixel = dst + pixel * 4;
 
-        dstPixel[3] = 1.0f;
+        dstPixel[3] = 1.0f; // Alpha value, so set to 1 as RGBE doesn't support alpha
         if (srcPixel[0] == 0 && srcPixel[1] == 0 && srcPixel[2] == 0 && srcPixel[3] == 0) {
             dstPixel[0] = 0.0f;
             dstPixel[1] = 0.0f;
@@ -105,5 +107,39 @@ void convertRGBEtoRGB(uint8_t* src, float* dst, uint32_t pixelCount) {
             dstPixel[1] = std::ldexp((srcPixel[1] + 0.5f) / 256.0f, exp);
             dstPixel[2] = std::ldexp((srcPixel[2] + 0.5f) / 256.0f, exp);
         }
+    }
+}
+
+void convertRGBtoRGBE(float* src, uint8_t* dst, uint32_t pixelCount) {
+    for (uint32_t pixel = 0; pixel < pixelCount; pixel++) {
+        float* srcPixel = src + pixel * 4;
+        uint8_t* dstPixel = dst + pixel * 4;
+
+        float max = std::max(std::max(srcPixel[0], srcPixel[1]), srcPixel[2]);
+        if (max <= 1e-32f) {
+            // Our max value is too low, so just specify pure 0
+            dstPixel[0] = 0;
+            dstPixel[1] = 0;
+            dstPixel[2] = 0;
+            dstPixel[3] = 0;
+            continue;
+        }
+
+        int exp;
+        float fracMult = 256.0f * std::frexp(max, &exp) / max;
+
+        if (exp > 127) {
+            // Exponent is greater than what RGBE can represent, so clamp to max value
+            dstPixel[0] = 255;
+            dstPixel[1] = 255;
+            dstPixel[2] = 255;
+            dstPixel[3] = 255;
+            continue;
+        }
+
+        dstPixel[0] = std::clamp(int32_t(srcPixel[0] * fracMult), 0, 255);
+        dstPixel[1] = std::clamp(int32_t(srcPixel[1] * fracMult), 0, 255);
+        dstPixel[2] = std::clamp(int32_t(srcPixel[2] * fracMult), 0, 255);
+        dstPixel[3] = exp + 128;
     }
 }

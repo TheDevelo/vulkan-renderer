@@ -30,7 +30,7 @@ const shaders = [
 ];
 
 //set default targets to build (can be overridden by command line options):
-maek.TARGETS = ["bin/viewer"];
+maek.TARGETS = ["bin/viewer", "bin/cube"];
 
 // Set CPP options
 maek.options.CPPFlags.push(
@@ -45,13 +45,15 @@ maek.options.CPPFlags.push(
 // objFileBase (optional): base name object file to produce (if not supplied, set to options.objDir + '/' + cppFile without the extension)
 //returns objFile: objFileBase + a platform-dependant suffix ('.o' or '.obj')
 
+const main_obj = maek.CPP('src/main.cpp');
+const cube_obj = maek.CPP('src/utilities/cube.cpp');
 const VKRenderer_objs = [
-	maek.CPP('src/main.cpp'),
 	maek.CPP('src/util.cpp'),
 	maek.CPP('src/buffer.cpp'),
 	maek.CPP('src/json.cpp'),
 	maek.CPP('src/materials.cpp', undefined, { depends: [...shaders] }), // Includes our shaders, so depends on the shader tasks
 	maek.CPP('src/options.cpp'),
+	maek.CPP('src/ext_impl.cpp'),
 
 	maek.CPP('src/instance.cpp'),
 	maek.CPP('src/instance_window.cpp'),
@@ -70,7 +72,8 @@ const VKRenderer_options = {};
 VKRenderer_options.LINKLibs = [...maek.options.LINKLibs,
 	`-lglfw`, `-lvulkan`, `-ldl`, `-lpthread`, `-lX11`, `-lXxf86vm`, `-lXrandr`, `-lXi`,
 ];
-const VKRenderer_bin = maek.LINK(VKRenderer_objs, 'bin/viewer', VKRenderer_options);
+const VKRenderer_bin = maek.LINK([main_obj, ...VKRenderer_objs], 'bin/viewer', VKRenderer_options);
+const cube_bin = maek.LINK([cube_obj, ...VKRenderer_objs], 'bin/cube', VKRenderer_options);
 
 //======================================================================
 //Now, onward to the code that makes all this work:

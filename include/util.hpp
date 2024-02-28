@@ -43,3 +43,4 @@ inline std::string string_format(const std::string& format, Args... args) {
 }
 
 void convertRGBEtoRGB(uint8_t* src, float* dst, uint32_t pixelCount);
+void convertRGBtoRGBE(float* src, uint8_t* dst, uint32_t pixelCount);

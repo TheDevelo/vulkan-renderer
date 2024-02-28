@@ -1,6 +1,7 @@
 #include <vulkan/vulkan.h>
-#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+
+#include <cstring>
 
 #include "buffer.hpp"
 #include "instance.hpp"
