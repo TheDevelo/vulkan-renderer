@@ -1,6 +1,10 @@
 #version 450
 #include "common.glsl"
 
+layout(binding = 0) uniform CameraInfoUBO {
+    CameraInfo camera;
+};
+
 layout(set = 1, binding = 0) uniform MaterialConstantsUBO {
     MaterialConstants materialConstants;
 };
@@ -21,5 +25,5 @@ void main() {
     vec3 normal = getNormal(frag, materialConstants, normalMap, uv);
 
     vec3 envLookupDir = (envTransform * vec4(normal, 0.0)).xyz;
-    outColor = tonemap(frag.color * texture(envCubemap, envLookupDir));
+    outColor = tonemap(frag.color * texture(envCubemap, envLookupDir), camera.exposure);
 }

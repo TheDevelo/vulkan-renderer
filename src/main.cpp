@@ -604,6 +604,15 @@ private:
                     ChangeCullingEvent data = get<ChangeCullingEvent>(event.data);
                     scene.cullingMode = data.cullingMode;
                 }
+                else if (event.type == RI_EV_EXPOSURE) {
+                    ExposureEvent data = get<ExposureEvent>(event.data);
+                    if (data.setOrMultiply) {
+                        scene.cameraInfo.exposure *= data.exposure;
+                    }
+                    else {
+                        scene.cameraInfo.exposure = data.exposure;
+                    }
+                }
             }
 
             // Update scene transforms based on animations

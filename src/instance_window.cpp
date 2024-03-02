@@ -70,6 +70,25 @@ static void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int actio
         });
     }
 
+    // Exposure controls
+    if (key == GLFW_KEY_UP && action == GLFW_PRESS) {
+        instance->eventQueue.emplace_back(RenderInstanceEvent {
+            .type = RI_EV_EXPOSURE,
+            .data = ExposureEvent {
+                .setOrMultiply = true,
+                .exposure = 1.5,
+            },
+        });
+    }
+    if (key == GLFW_KEY_DOWN && action == GLFW_PRESS) {
+        instance->eventQueue.emplace_back(RenderInstanceEvent {
+            .type = RI_EV_EXPOSURE,
+            .data = ExposureEvent {
+                .setOrMultiply = true,
+                .exposure = 1.0 / 1.5,
+            },
+        });
+    }
 }
 
 static void glfwMouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {

@@ -1,11 +1,9 @@
 #version 450
 #include "common.glsl"
 
-layout(binding = 0) uniform CameraInfo {
-    mat4 view;
-    mat4 proj;
-    vec4 position;
-} camera;
+layout(binding = 0) uniform CameraInfoUBO {
+    CameraInfo camera;
+};
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;

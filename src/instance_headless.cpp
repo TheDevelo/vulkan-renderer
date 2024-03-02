@@ -92,6 +92,19 @@ void RenderInstance::initHeadless() {
                 .cullingMode = cullingMode,
             };
         }
+        else if (eventType == "EXPOSURE") {
+            float exposure;
+            auto result = std::from_chars(line.data(), line.data() + line.size(), exposure);
+            if (result.ec == std::errc::invalid_argument || result.ec == std::errc::result_out_of_range) {
+                PANIC("Headless events parsing error: invalid arguments to EXPOSURE");
+            }
+
+            event.type = RI_EV_EXPOSURE;
+            event.data = ExposureEvent {
+                .setOrMultiply = false,
+                .exposure = exposure,
+            };
+        }
         else {
             PANIC("Headless events parsing error: invalid event type");
         }

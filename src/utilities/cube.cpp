@@ -29,7 +29,7 @@ Vec3<float> getNormalFrom(uint32_t face, uint32_t x, uint32_t y, uint32_t width,
 }
 
 int main(int argc, char** argv) {
-    const uint32_t lambertianSize = 8;
+    const uint32_t lambertianSize = 32;
     // Load the cubemap into a float buffer
     int textureWidth, textureHeight, textureChannels;
     stbi_uc* pixels = stbi_load("cube.png", &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);

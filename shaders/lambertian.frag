@@ -1,6 +1,10 @@
 #version 450
 #include "common.glsl"
 
+layout(binding = 0) uniform CameraInfoUBO {
+    CameraInfo camera;
+};
+
 layout(set = 1, binding = 0) uniform MaterialConstantsUBO {
     MaterialConstants materialConstants;
 };
@@ -29,5 +33,5 @@ void main() {
     else {
         diffuseColor = vec4(materialConstants.albedo, 1.0);
     }
-    outColor = tonemap(frag.color * diffuseColor * texture(lambertianCubemap, envLookupDir));
+    outColor = tonemap(frag.color * diffuseColor * texture(lambertianCubemap, envLookupDir), camera.exposure);
 }

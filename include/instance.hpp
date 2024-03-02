@@ -61,6 +61,11 @@ struct ChangeCullingEvent {
     CullingMode cullingMode;
 };
 
+struct ExposureEvent {
+    bool setOrMultiply; // true = multiply, false = set
+    float exposure;
+};
+
 struct InternalSaveEvent {
     std::string outputPath;
 };
@@ -78,6 +83,7 @@ enum RenderInstanceEventType {
     RI_EV_TOGGLE_ANIMATION,
     RI_EV_SET_ANIMATION,
     RI_EV_CHANGE_CULLING,
+    RI_EV_EXPOSURE,
     RI_EV_INTERNAL_AVAILABLE,
     RI_EV_INTERNAL_SAVE,
     RI_EV_INTERNAL_MARK,
@@ -92,6 +98,7 @@ struct RenderInstanceEvent {
         UserCameraRotateEvent,
         SetAnimationEvent,
         ChangeCullingEvent,
+        ExposureEvent,
         InternalSaveEvent,
         InternalMarkEvent
     > data;

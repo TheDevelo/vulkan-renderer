@@ -20,6 +20,7 @@ struct alignas(256) CameraInfo {
     Mat4<float> view;
     Mat4<float> proj;
     Vec4<float> position;
+    float exposure;
 };
 
 // Data required for rendering, but not managed by the scene

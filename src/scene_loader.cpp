@@ -529,6 +529,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
     calculateAncestors();
     cullingMode = options::getDefaultCullingMode();
+    cameraInfo.exposure = 1.0f;
 }
 
 // Helper to recursively compute the bounding box of a node with dynamic programming

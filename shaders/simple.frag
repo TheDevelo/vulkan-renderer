@@ -1,6 +1,10 @@
 #version 450
 #include "common.glsl"
 
+layout(binding = 0) uniform CameraInfoUBO {
+    CameraInfo camera;
+};
+
 layout(set = 1, binding = 0) uniform MaterialConstantsUBO {
     MaterialConstants materialConstants;
 };
@@ -16,5 +20,5 @@ void main() {
     vec3 normal = getNormal(frag, materialConstants, normalMap, uv);
 
     float light = dot(normal, vec3(0,0,1)) * 0.5 + 0.5;
-    outColor = tonemap(vec4(frag.color.rgb * light, frag.color.a));
+    outColor = tonemap(vec4(frag.color.rgb * light, frag.color.a), camera.exposure);
 }
