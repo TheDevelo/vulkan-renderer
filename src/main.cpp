@@ -23,6 +23,10 @@
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
+const float pbrBRDFArray[] =
+#include "ggx_lut.inl"
+;
+
 class VKRendererApp {
 public:
     void run() {
@@ -47,7 +51,8 @@ private:
 
     std::vector<VkFramebuffer> renderTargetFramebuffers;
 
-    VkSampler textureSampler;
+    VkSampler repeatingSampler;
+    VkSampler clampedSampler;
 
     std::unique_ptr<CombinedImage> depthImage;
 
@@ -55,6 +60,7 @@ private:
     void* cameraUniformMap;
     std::vector<CombinedBuffer> environmentUniformBuffers;
     std::vector<void*> environmentUniformMaps;
+    std::unique_ptr<CombinedImage> pbrBRDFImage;
 
     VkDescriptorPool descriptorPool;
     std::unique_ptr<CombinedImage> defaultDescriptorImage;
@@ -210,7 +216,7 @@ private:
     void createTextureSampler() {
         VkPhysicalDeviceProperties properties;
         vkGetPhysicalDeviceProperties(renderInstance->physicalDevice, &properties);
-        VkSamplerCreateInfo samplerInfo {
+        VkSamplerCreateInfo repeatingSamplerInfo {
             .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
             .magFilter = VK_FILTER_LINEAR,
             .minFilter = VK_FILTER_LINEAR,
@@ -228,8 +234,27 @@ private:
             .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
             .unnormalizedCoordinates = VK_FALSE,
         };
+        VkSamplerCreateInfo clampedSamplerInfo {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter = VK_FILTER_LINEAR,
+            .minFilter = VK_FILTER_LINEAR,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            .mipLodBias = 0.0f,
+            .anisotropyEnable = VK_TRUE,
+            .maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+            .compareEnable = VK_FALSE,
+            .compareOp = VK_COMPARE_OP_ALWAYS,
+            .minLod = 0.0f,
+            .maxLod = 0.0f,
+            .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+            .unnormalizedCoordinates = VK_FALSE,
+        };
 
-        VK_ERR(vkCreateSampler(renderInstance->device, &samplerInfo, nullptr, &textureSampler), "failed to create texture sampler!");
+        VK_ERR(vkCreateSampler(renderInstance->device, &repeatingSamplerInfo, nullptr, &repeatingSampler), "failed to create texture sampler!");
+        VK_ERR(vkCreateSampler(renderInstance->device, &clampedSamplerInfo, nullptr, &clampedSampler), "failed to create texture sampler!");
     }
 
     void createUniformBuffers() {
@@ -247,6 +272,23 @@ private:
             environmentUniformBuffers.emplace_back(renderInstance, environmentBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
             vkMapMemory(renderInstance->device, environmentUniformBuffers[i].bufferMemory, 0, environmentBufferSize, 0, &environmentUniformMaps[i]);
         }
+
+        // Load the PBR BRDF image
+        VkDeviceSize pbrBRDFSize = 256 * 256 * 8;
+        CombinedBuffer stagingBuffer(renderInstance, pbrBRDFSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        pbrBRDFImage = std::make_unique<CombinedImage>(renderInstance, 256, 256, VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+        void* data;
+        vkMapMemory(renderInstance->device, stagingBuffer.bufferMemory, 0, pbrBRDFSize, 0, &data);
+        memcpy(data, pbrBRDFArray, sizeof(pbrBRDFArray));
+        vkUnmapMemory(renderInstance->device, stagingBuffer.bufferMemory);
+
+        // Copy staging buffer to our PBR BRDF image and prepare it for shader reads
+        VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
+        transitionImageLayout(commandBuffer, pbrBRDFImage->image, VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        copyBufferToImage(commandBuffer, stagingBuffer.buffer, pbrBRDFImage->image, 256, 256, 1);
+        transitionImageLayout(commandBuffer, pbrBRDFImage->image, VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        endSingleUseCBuffer(*renderInstance, commandBuffer);
     }
 
     void createDescriptorSets() {
@@ -261,10 +303,11 @@ private:
         uint32_t environmentDescs = scene.environments.size();
         uint32_t simpleEnvMirrorDescs = scene.materialCounts.simple + scene.materialCounts.environment + scene.materialCounts.mirror;
         uint32_t lambertianDescs = scene.materialCounts.lambertian;
+        uint32_t pbrDescs = scene.materialCounts.pbr;
 
-        uint32_t uniformDescs = simpleEnvMirrorDescs + lambertianDescs;
+        uint32_t uniformDescs = simpleEnvMirrorDescs + lambertianDescs + pbrDescs;
         uint32_t dynamicUniformDescs = cameraDescs + environmentDescs;
-        uint32_t combinedImageSamplerDescs = 2 * environmentDescs + 2 * simpleEnvMirrorDescs + 3 * lambertianDescs;
+        uint32_t combinedImageSamplerDescs = cameraDescs + 2 * environmentDescs + 2 * simpleEnvMirrorDescs + 3 * lambertianDescs + 5 * pbrDescs;
 
         // Create the descriptor pool
         // NOTE: Each type needs at least 1 descriptor to allocate, or else we get an error
@@ -285,7 +328,7 @@ private:
 
         VkDescriptorPoolCreateInfo poolInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = cameraDescs + environmentDescs + simpleEnvMirrorDescs + lambertianDescs,
+            .maxSets = cameraDescs + environmentDescs + simpleEnvMirrorDescs + lambertianDescs + pbrDescs,
             .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
             .pPoolSizes = poolSizes.data(),
         };
@@ -338,6 +381,18 @@ private:
         std::vector<VkDescriptorSet> lambertianDescriptorSets(lambertianDescs);
         VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &lambertianAllocInfo, lambertianDescriptorSets.data()), "failed to allocate descriptor sets!");
 
+        // Allocate the Lambertian material descriptor sets
+        std::vector<VkDescriptorSetLayout> pbrLayouts(pbrDescs, materialPipelines->pbrLayout);
+        VkDescriptorSetAllocateInfo pbrAllocInfo {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = descriptorPool,
+            .descriptorSetCount = pbrDescs,
+            .pSetLayouts = pbrLayouts.data(),
+        };
+
+        std::vector<VkDescriptorSet> pbrDescriptorSets(pbrDescs);
+        VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &pbrAllocInfo, pbrDescriptorSets.data()), "failed to allocate descriptor sets!");
+
         // Point our descriptor sets at the underlying resources
         std::vector<VkWriteDescriptorSet> descriptorWrites;
         std::vector<VkDescriptorBufferInfo> bufferWrites;
@@ -346,10 +401,16 @@ private:
         bufferWrites.reserve(uniformDescs + dynamicUniformDescs);
         imageWrites.reserve(combinedImageSamplerDescs);
 
+        // Camera descriptors
         VkDescriptorBufferInfo& cameraBufferInfo = bufferWrites.emplace_back(VkDescriptorBufferInfo {
             .buffer = cameraUniformBuffer->buffer,
             .offset = 0,
             .range = sizeof(CameraInfo),
+        });
+        VkDescriptorImageInfo& pbrBRDFInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+            .sampler = clampedSampler,
+            .imageView = pbrBRDFImage->imageView,
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         });
         descriptorWrites.emplace_back(VkWriteDescriptorSet {
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -360,7 +421,17 @@ private:
             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             .pBufferInfo = &cameraBufferInfo,
         });
+        descriptorWrites.emplace_back(VkWriteDescriptorSet {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = scene.cameraDescriptorSet,
+            .dstBinding = 1,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = &pbrBRDFInfo,
+        });
 
+        // Environment descriptors
         for (size_t i = 0; i < environmentDescs; i++) {
             VkDescriptorBufferInfo& envBufferInfo = bufferWrites.emplace_back(VkDescriptorBufferInfo {
                 .buffer = environmentUniformBuffers[i].buffer,
@@ -368,12 +439,12 @@ private:
                 .range = sizeof(Mat4<float>),
             });
             VkDescriptorImageInfo& radianceInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
-                .sampler = textureSampler,
+                .sampler = repeatingSampler,
                 .imageView = scene.environments[i].radiance->imageView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             });
             VkDescriptorImageInfo& lambertianInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
-                .sampler = textureSampler,
+                .sampler = repeatingSampler,
                 .imageView = scene.environments[i].lambertian->imageView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             });
@@ -409,9 +480,11 @@ private:
             scene.environments[i].descriptorSet = envDescriptorSets[i];
         }
 
+        // Material descriptors
         VkBuffer materialConstantsBuffer = scene.getMaterialConstantsBuffer().buffer;
         size_t simpleEnvMirrorIndex = 0;
         size_t lambertianIndex = 0;
+        size_t pbrIndex = 0;
         for (size_t i = 0; i < scene.materials.size(); i++) {
             Material& material = scene.materials[i];
             if (material.type == MaterialType::SIMPLE || material.type == MaterialType::ENVIRONMENT || material.type == MaterialType::MIRROR) {
@@ -421,6 +494,10 @@ private:
             else if (material.type == MaterialType::LAMBERTIAN) {
                 material.descriptorSet = lambertianDescriptorSets[lambertianIndex];
                 lambertianIndex += 1;
+            }
+            else if (material.type == MaterialType::PBR) {
+                material.descriptorSet = pbrDescriptorSets[pbrIndex];
+                pbrIndex += 1;
             }
 
             // Add the MaterialConstants binding
@@ -441,7 +518,7 @@ private:
 
             // Add normal map if we have one
             VkDescriptorImageInfo& normalInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
-                .sampler = textureSampler,
+                .sampler = repeatingSampler,
                 .imageView = defaultDescriptorImage->imageView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             });
@@ -460,7 +537,7 @@ private:
 
             // Add displacement map if we have one
             VkDescriptorImageInfo& displacementInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
-                .sampler = textureSampler,
+                .sampler = repeatingSampler,
                 .imageView = defaultDescriptorImage->imageView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             });
@@ -477,10 +554,10 @@ private:
                 .pImageInfo = &displacementInfo,
             });
 
-            if (material.type == MaterialType::LAMBERTIAN) {
+            if (material.type == MaterialType::LAMBERTIAN || material.type == MaterialType::PBR) {
                 // Add albedo map if we have one
                 VkDescriptorImageInfo& albedoInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
-                    .sampler = textureSampler,
+                    .sampler = repeatingSampler,
                     .imageView = defaultDescriptorImage->imageView,
                     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 });
@@ -495,6 +572,46 @@ private:
                     .descriptorCount = 1,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .pImageInfo = &albedoInfo,
+                });
+            }
+
+            if (material.type == MaterialType::PBR) {
+                // Add roughness map if we have one
+                VkDescriptorImageInfo& roughnessInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+                    .sampler = repeatingSampler,
+                    .imageView = defaultDescriptorImage->imageView,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                });
+                if (holds_alternative<std::unique_ptr<CombinedImage>>(material.roughnessMap)) {
+                    roughnessInfo.imageView = get<std::unique_ptr<CombinedImage>>(material.roughnessMap)->imageView;
+                }
+                descriptorWrites.emplace_back(VkWriteDescriptorSet {
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = material.descriptorSet,
+                    .dstBinding = 4,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &roughnessInfo,
+                });
+
+                // Add metalness map if we have one
+                VkDescriptorImageInfo& metalnessInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+                    .sampler = repeatingSampler,
+                    .imageView = defaultDescriptorImage->imageView,
+                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                });
+                if (holds_alternative<std::unique_ptr<CombinedImage>>(material.metalnessMap)) {
+                    metalnessInfo.imageView = get<std::unique_ptr<CombinedImage>>(material.metalnessMap)->imageView;
+                }
+                descriptorWrites.emplace_back(VkWriteDescriptorSet {
+                    .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    .dstSet = material.descriptorSet,
+                    .dstBinding = 5,
+                    .dstArrayElement = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .pImageInfo = &metalnessInfo,
                 });
             }
         }
@@ -804,7 +921,8 @@ public:
 
         vkDestroyDescriptorPool(renderInstance->device, descriptorPool, nullptr);
 
-        vkDestroySampler(renderInstance->device, textureSampler, nullptr);
+        vkDestroySampler(renderInstance->device, repeatingSampler, nullptr);
+        vkDestroySampler(renderInstance->device, clampedSampler, nullptr);
 
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(renderInstance->device, imageAvailableSemaphores[i], nullptr);

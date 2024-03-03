@@ -119,6 +119,7 @@ enum class MaterialType {
     ENVIRONMENT,
     MIRROR,
     LAMBERTIAN,
+    PBR,
 };
 
 struct Material {
@@ -130,6 +131,9 @@ struct Material {
 
     // Albedo for Lambertian/PBR
     std::variant<Vec3<float>, std::unique_ptr<CombinedImage>> albedoMap;
+    // Roughness/Metalness for PBR
+    std::variant<float, std::unique_ptr<CombinedImage>> roughnessMap;
+    std::variant<float, std::unique_ptr<CombinedImage>> metalnessMap;
 
     VkDescriptorSet descriptorSet;
 

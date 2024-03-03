@@ -49,52 +49,6 @@ Vec3<float> getNormalFrom(CubePixel pixel, uint32_t width, uint32_t height) {
     }
 }
 
-void normalToCube(Vec3<float> const& normal, uint32_t width, uint32_t height, CubePixel& pixel) {
-    float s;
-    float t;
-    if (abs(normal.x) >= abs(normal.y) && abs(normal.x) >= abs(normal.z)) {
-        if (normal.x >= 0.0) {
-            pixel.face = 0;
-            s = -normal.z / normal.x;
-            t = -normal.y / normal.x;
-        }
-        else {
-            pixel.face = 1;
-            s = normal.z / -normal.x;
-            t = -normal.y / -normal.x;
-        }
-    }
-    else if (abs(normal.y) >= abs(normal.z)) {
-        if (normal.y >= 0.0) {
-            pixel.face = 2;
-            s = normal.x / normal.y;
-            t = normal.z / normal.y;
-        }
-        else {
-            pixel.face = 3;
-            s = normal.x / -normal.y;
-            t = -normal.z / -normal.y;
-        }
-    }
-    else {
-        if (normal.z >= 0.0) {
-            pixel.face = 4;
-            s = normal.x / normal.z;
-            t = -normal.y / normal.z;
-        }
-        else {
-            pixel.face = 5;
-            s = -normal.x / -normal.z;
-            t = -normal.y / -normal.z;
-        }
-    }
-
-    s = s * 0.5 + 0.5;
-    t = t * 0.5 + 0.5;
-    pixel.x = std::min(static_cast<uint32_t>(s * width), width - 1);
-    pixel.y = std::min(static_cast<uint32_t>(t * height), height - 1);
-}
-
 void integrateLambertian(std::filesystem::path filePath, Cubemap const& inputEnv, uint32_t outputSize) {
     Cubemap lambertianEnv {
         .data = std::vector<float>(outputSize * outputSize * 6 * 4),
@@ -362,6 +316,69 @@ void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint3
     }
 }
 
+// Calculates the LUT for the 2nd part of the split sum approximation
+// This is invariant of the environment map, so I only need to run this once to generate include/ggx_lut.inl
+// Generated using Monte Carlo instead of exact quadrature since it simplifies the math.
+// Plus I can get good quality by jacking up the sample count and just waiting, since this is a do-once computation
+void generateGGXLUT() {
+    const uint32_t roughnessRange = 256;
+    const uint32_t cosThetaVRange = 256;
+    const uint32_t samplesSqrt = 256;
+
+    auto G1 = [](Vec3<float> const& v, float alpha) {
+        float k = alpha / 2;
+        return v.z / (v.z * (1 - k) + k);
+    };
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dist(0.0, 1.0 / samplesSqrt);
+
+    for (uint32_t roughnessI = 0; roughnessI < roughnessRange; roughnessI++) {
+        float roughness = (static_cast<float>(roughnessI) + 0.5) / roughnessRange;
+        float alpha = roughness * roughness;
+        float alphaSquared = alpha * alpha;
+        for (uint32_t cosThetaVI = 0; cosThetaVI < cosThetaVRange; cosThetaVI++) {
+            if (roughnessI == 0 && cosThetaVI == 0) {
+                std::cout << "{";
+            }
+            else {
+                std::cout << " ";
+            }
+            float cosThetaV = (static_cast<float>(cosThetaVI) + 0.5) / cosThetaVRange;
+            Vec3<float> v = Vec3<float>(sqrt(1.0 - cosThetaV * cosThetaV), 0.0, cosThetaV);
+
+            // Integrate with a stratified sampler
+            double slope = 0.0;
+            double bias = 0.0;
+            for (uint32_t sampleX = 0; sampleX < samplesSqrt; sampleX++) {
+                for (uint32_t sampleY = 0; sampleY < samplesSqrt; sampleY++) {
+                    // Importance sample the GGX distribution
+                    Vec2<float> randUV = Vec2<float>(static_cast<float>(sampleX) / samplesSqrt + dist(gen), static_cast<float>(sampleY) / samplesSqrt + dist(gen));
+                    float phi = 2 * M_PI * randUV.x;
+                    float cosTheta = sqrt((1.0 - randUV.y) / (1.0 + (alphaSquared - 1.0) * randUV.y));
+                    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+
+                    Vec3<float> h = Vec3<float>(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+                    Vec3<float> l = 2.0f * linear::dot(v, h) * h - v;
+                    if (l.z > 0.0) {
+                        float shadowMasking = G1(l, alpha) * G1(v, alpha);
+                        float fresnel = powf(1 - linear::dot(v, h), 5);
+                        float normalization = linear::dot(v, h) / (h.z * v.z);
+
+                        slope += shadowMasking * (1 - fresnel) * normalization;
+                        bias += shadowMasking * fresnel * normalization;
+                    }
+                }
+            }
+            slope /= samplesSqrt * samplesSqrt;
+            bias /= samplesSqrt * samplesSqrt;
+
+            std::cout << slope << ", " << bias << "," << std::endl;
+        }
+    }
+    std::cout << "}" << std::endl;
+}
+
 int main(int argc, char** argv) {
     // Parse command line options
     bool doIntegrateLambertian = false;
@@ -406,6 +423,10 @@ int main(int argc, char** argv) {
             if (inputDownscale == 0 || (inputDownscale & (inputDownscale - 1)) != 0) {
                 PANIC("scale factor for --input-downscale should be a power of 2 >= 1");
             }
+        }
+        else if (currentArg == "--generate-ggx-lut") {
+            generateGGXLUT();
+            return 0;
         }
         else if (!inputFile.has_value()) {
             inputFile = currentArg;

@@ -12,6 +12,9 @@
 #include "scene.hpp"
 #include "util.hpp"
 
+// Helper macros for scene parsing
+#define PANIC_JSON_MISSING(obj, entry, type, msg) if (!obj.contains(entry) || !obj.at(entry).is_ ## type()) { PANIC(msg); }
+
 // Helpers for computing the bounding box of a mesh
 void addVertToBBox(Vec3<float> const& position, AxisAlignedBoundingBox& bbox) {
     bbox.minCorner.x = std::min(position.x, bbox.minCorner.x);
@@ -76,12 +79,8 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         json::object const& object = e->as_obj();
 
         // Check we have a valid object (needs a name and type string)
-        if (!object.contains("type") || !object.at("type").is_str()) {
-            PANIC("Scene loading error: s72 object has an unspecified type");
-        }
-        if (!object.contains("name") || !object.at("name").is_str()) {
-            PANIC("Scene loading error: s72 object has an invalid name");
-        }
+        PANIC_JSON_MISSING(object, "type", str, "Scene loading error: s72 object has an unspecified type");
+        PANIC_JSON_MISSING(object, "name", str, "Scene loading error: s72 object has an invalid name");
 
         std::string const& type = object.at("type").as_str();
         if (type == "SCENE") {
@@ -121,9 +120,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
     // Set scene roots
     json::object const& sceneRootObj = sceneArr[sceneId].as_obj();
-    if (!sceneRootObj.contains("roots") || !sceneRootObj.at("roots").is_arr()) {
-        PANIC("Scene loading error: scene object doesn't have scene roots");
-    }
+    PANIC_JSON_MISSING(sceneRootObj, "roots", arr, "Scene loading error: scene object doesn't have scene roots");
     for (json::Value const& rootVal : sceneRootObj.at("roots").as_arr()) {
         sceneRoots.emplace_back(nodeIdMap.at(rootVal.as_num()));
     }
@@ -200,25 +197,17 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         uint32_t s72Id = idPair.first;
         json::object const& meshObj = sceneArr[s72Id].as_obj();
 
-        if (!meshObj.contains("count") || !meshObj.at("count").is_num()) {
-            PANIC("Scene loading error: mesh is missing vertex count");
-        }
-        else if (meshObj.at("count").as_num() == 0.0) {
+        PANIC_JSON_MISSING(meshObj, "count", num, "Scene loading error: mesh is missing vertex count");
+        if (meshObj.at("count").as_num() == 0.0) {
             PANIC("Scene loading error: mesh has no vertices");
         }
+        PANIC_JSON_MISSING(meshObj, "attributes", obj, "Scene loading error: mesh doesn't have attributes");
 
-        if (!meshObj.contains("attributes") || !meshObj.at("attributes").is_obj()) {
-            PANIC("Scene loading error: mesh doesn't have attributes");
-        }
         json::object const& attribObj = meshObj.at("attributes").as_obj();
 
         Mesh mesh {
             .name = meshObj.at("name").as_str(),
             .vertexCount = static_cast<uint32_t>(meshObj.at("count").as_num()),
-            /*
-            .vertexBufferIndex = 0,
-            .vertexBufferOffset = curBufferCount * static_cast<uint32_t>(sizeof(Vertex)),
-            */
 
             .bbox = AxisAlignedBoundingBox {
                 .minCorner = Vec3<float>(std::numeric_limits<float>::max()),
@@ -257,13 +246,11 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         uint32_t s72Id = idPair.first;
         json::object const& cameraObj = sceneArr[s72Id].as_obj();
 
-        if (!cameraObj.contains("perspective") || !cameraObj.at("perspective").is_obj()) {
-            PANIC("Scene loading error: camera doesn't have perspective values");
-        }
+        PANIC_JSON_MISSING(cameraObj, "perspective", obj, "Scene loading error: camera doesn't have perspective values");
         json::object const& perspObj = cameraObj.at("perspective").as_obj();
-        if (!perspObj.contains("aspect") || !perspObj.contains("vfov") || !perspObj.contains("near")) {
-            PANIC("Scene loading error: camera perspective is incomplete");
-        }
+        PANIC_JSON_MISSING(perspObj, "aspect", num, "Scene loading error: camera perspective is incomplete");
+        PANIC_JSON_MISSING(perspObj, "vfov", num, "Scene loading error: camera perspective is incomplete");
+        PANIC_JSON_MISSING(perspObj, "near", num, "Scene loading error: camera perspective is incomplete");
 
         Camera camera {
             .name = cameraObj.at("name").as_str(),
@@ -288,15 +275,11 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         json::object const& driverObj = sceneArr[s72Id].as_obj();
 
         // Get the driver's target
-        if (!driverObj.contains("node") || !driverObj.at("node").is_num()) {
-            PANIC("Scene loading error: driver object doesn't have a target node");
-        }
+        PANIC_JSON_MISSING(driverObj, "node", num, "Scene loading error: driver object doesn't have a target node");
         uint32_t targetJsonId = driverObj.at("node").as_num();
 
         // Get the target channel
-        if (!driverObj.contains("channel") || !driverObj.at("channel").is_str()) {
-            PANIC("Scene loading error: driver object doesn't have a target channel");
-        }
+        PANIC_JSON_MISSING(driverObj, "channel", str, "Scene loading error: driver object doesn't have a target channel");
         std::string const& channelStr = driverObj.at("channel").as_str();
         DriverChannel channel;
         uint32_t channelWidth;
@@ -324,9 +307,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         };
 
         // Get the keyframe times
-        if (!driverObj.contains("times") || !driverObj.at("times").is_arr()) {
-            PANIC("Scene loading error: driver object doesn't have keyframe times");
-        }
+        PANIC_JSON_MISSING(driverObj, "times", arr, "Scene loading error: driver object doesn't have keyframe times");
         for (json::Value const& time : driverObj.at("times").as_arr()) {
             if (!time.is_num()) {
                 PANIC("Scene loading error: driver keyframe times contains invalid entry");
@@ -338,10 +319,8 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         }
 
         // Get the keyframe values
-        if (!driverObj.contains("values") || !driverObj.at("values").is_arr()) {
-            PANIC("Scene loading error: driver object doesn't have keyframe values");
-        }
-        else if (driverObj.at("values").as_arr().size() != channelWidth * driver.keyTimes.size()) {
+        PANIC_JSON_MISSING(driverObj, "values", arr, "Scene loading error: driver object doesn't have keyframe values");
+        if (driverObj.at("values").as_arr().size() != channelWidth * driver.keyTimes.size()) {
             PANIC("Scene loading error: driver has wrong number of keyframe values");
         }
         json::array const& driverValues = driverObj.at("values").as_arr();
@@ -380,6 +359,26 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         drivers.push_back(driver);
     }
 
+    auto loadTextureObj = [&](json::object const& obj, std::string expectedType) {
+        PANIC_JSON_MISSING(obj, "src", str, "Scene loading error: texture does not have a source");
+
+        std::string textureType = "2D";
+        if (obj.contains("type") && obj.at("type").is_str()) {
+            textureType = obj.at("type").as_str();
+        }
+        if (expectedType != textureType) {
+            PANIC("Scene loading error: texture has an unexpected type");
+        }
+
+        std::string imageFormat = "linear";
+        if (obj.contains("format") && obj.at("format").is_str()) {
+            imageFormat = obj.at("format").as_str();
+        }
+        // TODO: Actually use the image format to do something
+
+        return directory / obj.at("src").as_str();
+    };
+
     // Add the default material to the material list. Then erase the default material ID entry so we don't try to load it.
     materials.reserve(materialIdMap.size());
     materials.push_back(Material {
@@ -403,30 +402,23 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             .normalMap = nullptr,
             .displacementMap = nullptr,
             .albedoMap = Vec3<float>(1.0),
+            .roughnessMap = 1.0f,
+            .metalnessMap = 0.0f,
         };
 
         // Load the normal & displacement maps
         if (materialObj.contains("normalMap") && materialObj.at("normalMap").is_obj()) {
             json::object const& normalMapObj = materialObj.at("normalMap").as_obj();
-            if (!normalMapObj.contains("src") || !normalMapObj.at("src").is_str()) {
-                PANIC("Scene loading error: normal map does not have a source");
-            }
-            // TODO: Verify that the texture is actually a 2D RGB texture
-
-            std::filesystem::path filePath = directory / normalMapObj.at("src").as_str();
+            std::filesystem::path filePath = loadTextureObj(normalMapObj, "2D");
             material.normalMap = loadImage(renderInstance, filePath.string(), VK_FORMAT_R8G8B8A8_UNORM);
         }
         if (materialObj.contains("displacementMap") && materialObj.at("displacementMap").is_obj()) {
             json::object const& dispMapObj = materialObj.at("displacementMap").as_obj();
-            if (!dispMapObj.contains("src") || !dispMapObj.at("src").is_str()) {
-                PANIC("Scene loading error: displacement map does not have a source");
-            }
-            // TODO: Verify that the texture is actually a 2D RGB texture
-
-            std::filesystem::path filePath = directory / dispMapObj.at("src").as_str();
+            std::filesystem::path filePath = loadTextureObj(dispMapObj, "2D");
             material.displacementMap = loadImage(renderInstance, filePath.string(), VK_FORMAT_R8G8B8A8_UNORM);
         }
 
+        // Load material specific attributes
         if (materialObj.contains("simple")) {
             material.type = MaterialType::SIMPLE;
             materialCounts.simple += 1;
@@ -444,6 +436,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             materialCounts.lambertian += 1;
             json::object const& lambertianObj = materialObj.at("lambertian").as_obj();
 
+            // Load Lambertian albedo
             if (lambertianObj.contains("albedo") && lambertianObj.at("albedo").is_arr()) {
                 json::array const& albedoArr = lambertianObj.at("albedo").as_arr();
                 if (albedoArr.size() != 3 || !albedoArr[0].is_num() || !albedoArr[1].is_num() || !albedoArr[2].is_num()) {
@@ -452,14 +445,48 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
                 material.albedoMap = Vec3<float>(albedoArr[0].as_num(), albedoArr[1].as_num(), albedoArr[2].as_num());
             }
             else if (lambertianObj.contains("albedo") && lambertianObj.at("albedo").is_obj()) {
-                // TODO: Make loading a texture a helper
                 json::object const& albedoObj = lambertianObj.at("albedo").as_obj();
-                if (!albedoObj.contains("src") || !albedoObj.at("src").is_str()) {
-                    PANIC("Scene loading error: albedo map does not have a source");
-                }
-
-                std::filesystem::path filePath = directory / albedoObj.at("src").as_str();
+                std::filesystem::path filePath = loadTextureObj(albedoObj, "2D");
                 material.albedoMap = loadImage(renderInstance, filePath.string(), VK_FORMAT_R8G8B8A8_SRGB);
+            }
+        }
+        else if (materialObj.contains("pbr") && materialObj.at("pbr").is_obj()) {
+            material.type = MaterialType::PBR;
+            materialCounts.pbr += 1;
+            json::object const& pbrObj = materialObj.at("pbr").as_obj();
+
+            // Load PBR albedo
+            if (pbrObj.contains("albedo") && pbrObj.at("albedo").is_arr()) {
+                json::array const& albedoArr = pbrObj.at("albedo").as_arr();
+                if (albedoArr.size() != 3 || !albedoArr[0].is_num() || !albedoArr[1].is_num() || !albedoArr[2].is_num()) {
+                    PANIC("Scene loading error: invalid albedo vector");
+                }
+                material.albedoMap = Vec3<float>(albedoArr[0].as_num(), albedoArr[1].as_num(), albedoArr[2].as_num());
+            }
+            else if (pbrObj.contains("albedo") && pbrObj.at("albedo").is_obj()) {
+                json::object const& albedoObj = pbrObj.at("albedo").as_obj();
+                std::filesystem::path filePath = loadTextureObj(albedoObj, "2D");
+                material.albedoMap = loadImage(renderInstance, filePath.string(), VK_FORMAT_R8G8B8A8_SRGB);
+            }
+
+            // Load PBR roughness
+            if (pbrObj.contains("roughness") && pbrObj.at("roughness").is_num()) {
+                material.roughnessMap = static_cast<float>(pbrObj.at("roughness").as_num());
+            }
+            else if (pbrObj.contains("roughness") && pbrObj.at("roughness").is_obj()) {
+                json::object const& roughnessObj = pbrObj.at("roughness").as_obj();
+                std::filesystem::path filePath = loadTextureObj(roughnessObj, "2D");
+                material.roughnessMap = loadImage(renderInstance, filePath.string(), VK_FORMAT_R8G8B8A8_UNORM);
+            }
+
+            // Load PBR metalness
+            if (pbrObj.contains("metalness") && pbrObj.at("metalness").is_num()) {
+                material.metalnessMap = static_cast<float>(pbrObj.at("metalness").as_num());
+            }
+            else if (pbrObj.contains("metalness") && pbrObj.at("metalness").is_obj()) {
+                json::object const& metalnessObj = pbrObj.at("metalness").as_obj();
+                std::filesystem::path filePath = loadTextureObj(metalnessObj, "2D");
+                material.metalnessMap = loadImage(renderInstance, filePath.string(), VK_FORMAT_R8G8B8A8_UNORM);
             }
         }
         else {
@@ -483,21 +510,15 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         };
 
         // Load the radiance map
-        if (!envObj.contains("radiance") && !envObj.at("radiance").is_obj()) {
-            PANIC("Scene loading error: environment does not contain a radiance map");
-        }
+        PANIC_JSON_MISSING(envObj, "radiance", obj, "Scene loading error: environment does not contain a radiance map");
         json::object const& radianceObj = envObj.at("radiance").as_obj();
-        if (!radianceObj.contains("src") || !radianceObj.at("src").is_str()) {
-            PANIC("Scene loading error: environment radiance does not have a source");
-        }
-        // TODO: Verify that the texture is actually a cube RGBE texture
-
-        std::filesystem::path filePath = directory / radianceObj.at("src").as_str();
+        std::filesystem::path filePath = loadTextureObj(radianceObj, "cube");
         env.radiance = loadCubemap(renderInstance, filePath.string());
 
-        // Also go ahead and load the pre-integrated Lambertian cubemap
-        filePath.replace_extension(".lambertian.png");
-        env.lambertian = loadCubemap(renderInstance, filePath.string());
+        // Load the pre-integrated Lambertian cubemap
+        std::filesystem::path lambertianPath = filePath;
+        lambertianPath.replace_extension(".lambertian.png");
+        env.lambertian = loadCubemap(renderInstance, lambertianPath.string());
 
         environments.push_back(std::move(env));
     }
@@ -689,6 +710,26 @@ void Scene::buildMaterialConstantsBuffer(std::shared_ptr<RenderInstance>& render
         else {
             // Albedo uses an actual map
             dest->useAlbedoMap = true;
+        }
+
+        if (holds_alternative<float>(material.roughnessMap)) {
+            // Roughness is a constant
+            dest->useRoughnessMap = false;
+            dest->roughness = get<float>(material.roughnessMap);
+        }
+        else {
+            // Roughness uses an actual map
+            dest->useRoughnessMap = true;
+        }
+
+        if (holds_alternative<float>(material.metalnessMap)) {
+            // Metalness is a constant
+            dest->useMetalnessMap = false;
+            dest->metalness = get<float>(material.metalnessMap);
+        }
+        else {
+            // Metalness uses an actual map
+            dest->useMetalnessMap = true;
         }
     }
     vkUnmapMemory(renderInstance->device, stagingBuffer.bufferMemory);
