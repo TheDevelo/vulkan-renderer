@@ -265,8 +265,10 @@ void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint3
                                     // Check the pixel against the cutoff AND that the reflection doesn't go through the surface
                                     halfway = unitEnvNormals[environmentIndex / 4] + ggxNormal;
                                     cosHalf = linear::dot(halfway, ggxNormal);
+                                    float cos2Half = cosHalf * cosHalf;
+                                    float adjCutoff = cutoff * linear::length2(halfway);
                                     float cosRefl = linear::dot(unitEnvNormals[environmentIndex / 4], ggxNormal);
-                                    if (cosHalf * cosHalf > cutoff * linear::length2(halfway) && cosRefl > 0.0) {
+                                    if (cos2Half > adjCutoff && cosRefl > 0.0) {
                                         // The pixel passed, so we can add to the integral.
                                         // Calculate the Jacobian due to differing solid angle (see integrateLambertian() for justication)
                                         float jacobian = linear::dot(ggxNormal, envNormals[environmentIndex / 4]);
@@ -278,6 +280,14 @@ void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint3
                                         float denom = NoH * NoH * (alphaSquared - 1) + 1;
                                         float ggxProb = alphaSquared * NoH / (M_PI * denom * denom);
                                         jacobian *= ggxProb;
+
+                                        // Weight by the squared distance to cutoff, so that we don't get hard edges around very bright lights.
+                                        // Those edges happen when very bright pixels go from not being cutoff to being cutoff.
+                                        // While the pixels near the cutoff should have a small Jacobian, the pixels can offset it with their brightness.
+                                        // So the very bright pixels still have a large contribution to the integral near the cutoff, and cutting them off creates a hard edge
+                                        // By weighting by the squared distance to the cutoff, we can fade the brightness to 0 near the cutoff, removing the hard edge.
+                                        float cutoffWeight = (cos2Half - adjCutoff) / (1.0 - adjCutoff);
+                                        jacobian *= cutoffWeight * cutoffWeight;
 
                                         totalJacobian += jacobian;
                                         splitSum.x += inputEnv.data[environmentIndex] * jacobian;
