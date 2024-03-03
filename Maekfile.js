@@ -71,7 +71,7 @@ const VKRenderer_objs = [
 //returns exeFile: exeFileBase + a platform-dependant suffix (e.g., '.exe' on windows)
 const VKRenderer_options = {};
 VKRenderer_options.LINKLibs = [...maek.options.LINKLibs,
-	`-lglfw`, `-lvulkan`, `-ldl`, `-lpthread`, `-lX11`, `-lXxf86vm`, `-lXrandr`, `-lXi`,
+	`-lglfw`, `-lvulkan`, `-ldl`, `-lpthread`, `-lX11`, `-lXxf86vm`, `-lXrandr`, `-lXi`, `-ltbb`
 ];
 const VKRenderer_bin = maek.LINK([main_obj, ...VKRenderer_objs], 'bin/viewer', VKRenderer_options);
 const cube_bin = maek.LINK([cube_obj, ...VKRenderer_objs], 'bin/cube', VKRenderer_options);

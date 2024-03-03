@@ -1,7 +1,10 @@
 #include "stb_image.h"
 #include "stb_image_write.h"
 
+#include <algorithm>
+#include <barrier>
 #include <charconv>
+#include <execution>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -98,51 +101,80 @@ void integrateLambertian(std::filesystem::path filePath, Cubemap const& inputEnv
         .height = outputSize,
     };
 
-    // Iterate over each pixel in the output cubemap
+    // Generate a list of pixels in our lambertian cubemap so we can parallel for_each over them
+    std::vector<CubePixel> pixels(lambertianEnv.width * lambertianEnv.height * 6);
     for (uint32_t face = 0; face < 6; face++) {
         for (uint32_t y = 0; y < lambertianEnv.height; y++) {
             for (uint32_t x = 0; x < lambertianEnv.width; x++) {
-                uint32_t i = ((face * lambertianEnv.height + y) * lambertianEnv.width + x) * 4;
-                CubePixel pixel {
-                    .face = face,
-                    .x = x,
-                    .y = y,
-                };
-                Vec3<float> normal = linear::normalize(getNormalFrom(pixel, lambertianEnv.width, lambertianEnv.height));
-                Vec3<double> integral = Vec3<double>(0.0);
-                printf("%u\n", i / 4);
-
-                // Integrate over all the input cubemap pixels
-                for (uint32_t face2 = 0; face2 < 6; face2++) {
-                    for (uint32_t y2 = 0; y2 < inputEnv.height; y2++) {
-                        for (uint32_t x2 = 0; x2 < inputEnv.width; x2++) {
-                            uint32_t i2 = ((face2 * inputEnv.height + y2) * inputEnv.height + x2) * 4;
-                            CubePixel pixel2 {
-                                .face = face2,
-                                .x = x2,
-                                .y = y2,
-                            };
-                            Vec3<float> normal2 = getNormalFrom(pixel2, inputEnv.width, inputEnv.height);
-
-                            float jacobian = linear::dot(normal2, normal);
-                            if (jacobian > 0.0) {
-                                float length2 = linear::length2(normal);
-                                jacobian /= (length2 * length2);
-                                integral.x += inputEnv.data[i2] * jacobian;
-                                integral.y += inputEnv.data[i2 + 1] * jacobian;
-                                integral.z += inputEnv.data[i2 + 2] * jacobian;
-                            }
-                        }
-                    }
-                }
-
-                integral = integral * Vec3<double>(4.0 * M_1_PI / (static_cast<double>(inputEnv.width) * static_cast<double>(inputEnv.height)));
-                lambertianEnv.data[i] = integral.x;
-                lambertianEnv.data[i + 1] = integral.y;
-                lambertianEnv.data[i + 2] = integral.z;
+                uint32_t i = (face * lambertianEnv.height + y) * lambertianEnv.width + x;
+                pixels[i].face = face;
+                pixels[i].x = x;
+                pixels[i].y = y;
             }
         }
     }
+
+    // Setup a progress bar for the execution for loop
+    auto progressBarUpdate = [&]() noexcept {
+        static uint32_t totalPercent = 0;
+        static uint32_t pixelsCompleted = 0;
+        pixelsCompleted += 1;
+        if (pixelsCompleted * 100 >= (totalPercent + 1) * lambertianEnv.width * lambertianEnv.height * 6) {
+            totalPercent += 1;
+
+            if (totalPercent == 100) {
+                std::cout << "#] Complete!" << std::endl;
+            }
+            else if (totalPercent % 10 == 0) {
+                std::cout << "#" << std::flush;
+            }
+            else {
+                std::cout << "=" << std::flush;
+            }
+        }
+    };
+    std::barrier progressBarBarrier(1, progressBarUpdate);
+    std::cout << "Integrating Lambertian: [" << std::flush;
+
+    // Iterate over each pixel in the lambertian cubemap in parallel
+    std::for_each(std::execution::par, pixels.begin(), pixels.end(), [&](CubePixel& pixel) {
+        uint32_t lambertianIndex = ((pixel.face * lambertianEnv.height + pixel.y) * lambertianEnv.width + pixel.x) * 4;
+        Vec3<float> lambertianNormal = linear::normalize(getNormalFrom(pixel, lambertianEnv.width, lambertianEnv.height));
+        Vec3<double> integral = Vec3<double>(0.0);
+
+        // Integrate over all the input cubemap pixels
+        for (uint32_t face = 0; face < 6; face++) {
+            for (uint32_t y = 0; y < inputEnv.height; y++) {
+                for (uint32_t x = 0; x < inputEnv.width; x++) {
+                    uint32_t environmentIndex = ((face * inputEnv.height + y) * inputEnv.height + x) * 4;
+                    CubePixel environmentPixel {
+                        .face = face,
+                        .x = x,
+                        .y = y,
+                    };
+                    Vec3<float> environmentNormal = getNormalFrom(environmentPixel, inputEnv.width, inputEnv.height);
+
+                    // Jacobian of our integral is max(0, |w * n|) / ||w||^4. We take the max to exclude points on the lower hemisphere.
+                    // To not waste work on computing the length for points that don't contribute, we check just the dot product.
+                    float jacobian = linear::dot(lambertianNormal, environmentNormal);
+                    if (jacobian > 0.0) {
+                        float length2 = linear::length2(environmentNormal);
+                        jacobian /= (length2 * length2);
+                        integral.x += inputEnv.data[environmentIndex] * jacobian;
+                        integral.y += inputEnv.data[environmentIndex + 1] * jacobian;
+                        integral.z += inputEnv.data[environmentIndex + 2] * jacobian;
+                    }
+                }
+            }
+        }
+
+        integral = integral * Vec3<double>(4.0 * M_1_PI / (static_cast<double>(inputEnv.width) * static_cast<double>(inputEnv.height)));
+        lambertianEnv.data[lambertianIndex] = integral.x;
+        lambertianEnv.data[lambertianIndex + 1] = integral.y;
+        lambertianEnv.data[lambertianIndex + 2] = integral.z;
+
+        progressBarBarrier.arrive_and_wait();
+    });
 
     // Convert our lambertian cubemap to RGBE format
     std::vector<uint8_t> cubemapOut(lambertianEnv.width * lambertianEnv.height * 6 * 4);
