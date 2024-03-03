@@ -95,28 +95,6 @@ void normalToCube(Vec3<float> const& normal, uint32_t width, uint32_t height, Cu
     pixel.y = std::min(static_cast<uint32_t>(t * height), height - 1);
 }
 
-// Function to take the radical inverse of a function, with the digits scrambled according to perm
-// Adapted from PBRT: https://pbr-book.org/3ed-2018/Sampling_and_Reconstruction/The_Halton_Sampler
-float scrambledRadicalInverse(const std::vector<uint64_t> &perm, uint64_t a, uint64_t base) {
-    const float invBase = 1.0 / base;
-    uint64_t reversedDigits = 0;
-    float invBaseN = 1.0;
-    while (a) {
-        uint64_t next  = a / base;
-        uint64_t digit = a - next * base;
-        reversedDigits = reversedDigits * base + perm[digit];
-        invBaseN *= invBase;
-        a = next;
-    }
-    return std::min((reversedDigits + invBase * perm[0] / (1 - invBase)) * invBaseN, 0.999999f);
-}
-
-// Generate the ith sample from the Halton sequence
-// Since we only need 1 2D sample per iteration for our Monte Carlo purposes, just radical inverses with bases 2 and 3
-inline Vec2<float> halton(uint64_t i, const std::vector<uint64_t>& perm2, const std::vector<uint64_t>& perm3) {
-    return Vec2<float>(scrambledRadicalInverse(perm2, i, 2), scrambledRadicalInverse(perm3, i, 3));
-}
-
 void integrateLambertian(std::filesystem::path filePath, Cubemap const& inputEnv, uint32_t outputSize) {
     Cubemap lambertianEnv {
         .data = std::vector<float>(outputSize * outputSize * 6 * 4),
@@ -210,14 +188,14 @@ void integrateLambertian(std::filesystem::path filePath, Cubemap const& inputEnv
 }
 
 // NOTE: minOutputSize is the minimum size a GGX cubemap can be. Since we are doing mip-maps, the last mip-level might be bigger than minOutputSize.
-void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint32_t minOutputSize) {
+void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint32_t topWidth, uint32_t topHeight, uint32_t minOutputSize) {
     // Calculate the number of mipmap levels we want to generate. This includes a roughness 0 mipmap, which is just the input environment.
-    uint32_t mipLevels = std::floor(std::log2(std::max(inputEnv.width, inputEnv.height)) - std::log2(minOutputSize));
+    uint32_t mipLevels = std::floor(std::log2(std::max(topWidth, topHeight)) - std::log2(minOutputSize));
 
     // Generate a GGX mip-map for each LOD level.
-    uint32_t mipWidth = inputEnv.width / 2;
-    uint32_t mipHeight = inputEnv.width / 2;
-    for (uint32_t mipLevel = 1; mipLevel < mipLevels; mipLevel++) {
+    uint32_t mipWidth = topWidth / 2;
+    uint32_t mipHeight = topHeight / 2;
+    for (uint32_t mipLevel = 1; mipLevel <= mipLevels; mipLevel++) {
         Cubemap ggxEnv {
             .data = std::vector<float>(mipWidth * mipHeight * 6 * 4),
             .width = mipWidth,
@@ -225,9 +203,47 @@ void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint3
         };
 
         // Calculate the roughness value that our mip Level corresponds to
-        // Level 0 should be 0 roughness, while Level (mipLevels - 1) should be 1 roughness
-        float roughness = static_cast<float>(mipLevel) / (mipLevels - 1);
-        float alpha = roughness * roughness;
+        // Level 0 should be 0 roughness, while Level mipLevels should be 1 roughness
+        float roughness = static_cast<float>(mipLevel) / mipLevels;
+        float alphaSquared = roughness * roughness * roughness * roughness;
+
+        // Calculate the integration cutoff for our GGX halfway vectors.
+        // The cutoff is cos^2(theta), where theta is the angle such that 0 to theta encompasses tolerance% of the GGX probability
+        // A higher tolerance means higher quality, but longer to integrate. 0.99 is a good balance between quality and performance from my testing.
+        // The formula for the cutoff was derived after a few hours of finagling on WolframAlpha
+        const float tolerance = 0.99;
+        float cutoff = 1 - (alphaSquared * tolerance) / ((alphaSquared - 1) * tolerance + 1);
+
+        // Precompute the normals for pixels on the input environment, and representatives for input environment patches
+        // Precomputing here speeds up the main integration loop by a lot, since we need the normals to check against the cutoff.
+        // Thus these get computed for each iteration, not just for the pixels that pass the cutoff.
+        const uint32_t patchSize = std::min(std::min(inputEnv.width, inputEnv.height) / 16, 16u);
+        std::vector<Vec3<float>> envNormals;
+        std::vector<Vec3<float>> unitEnvNormals;
+        std::vector<Vec3<float>> unitPatchNormals;
+
+        envNormals.resize(inputEnv.width * inputEnv.height * 6);
+        unitEnvNormals.resize(inputEnv.width * inputEnv.height * 6);
+        unitPatchNormals.resize(inputEnv.width / patchSize * inputEnv.height / patchSize * 6);
+        for (uint32_t face = 0; face < 6; face++) {
+            for (uint32_t y = 0; y < inputEnv.height; y++) {
+                for (uint32_t x = 0; x < inputEnv.width; x++) {
+                    uint32_t i = (face * inputEnv.height + y) * inputEnv.width + x;
+                    CubePixel environmentPixel { .face = face, .x = x, .y = y, };
+                    envNormals[i] = getNormalFrom(environmentPixel, inputEnv.width, inputEnv.height);
+                    unitEnvNormals[i] = linear::normalize(envNormals[i]);
+                }
+            }
+        }
+        for (uint32_t face = 0; face < 6; face++) {
+            for (uint32_t y = 0; y < inputEnv.height / patchSize; y++) {
+                for (uint32_t x = 0; x < inputEnv.width / patchSize; x++) {
+                    uint32_t i = (face * inputEnv.height / patchSize + y) * inputEnv.width / patchSize + x;
+                    CubePixel environmentPixel { .face = face, .x = x, .y = y, };
+                    unitPatchNormals[i] = linear::normalize(getNormalFrom(environmentPixel, inputEnv.width / patchSize, inputEnv.height / patchSize));
+                }
+            }
+        }
 
         // Generate a list of pixels in our GGX cubemap so we can parallel for_each over them
         std::vector<CubePixel> pixels(ggxEnv.width * ggxEnv.height * 6);
@@ -262,73 +278,68 @@ void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint3
                 }
             }
         };
-        std::cout << "Integrating GGX (Level " << mipLevel << " of " << mipLevels - 1 << "): [" << std::flush;
-
-        // Generate permutations to use for our Halton sequence
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<> dist(0, 5);
-
-        std::vector<uint64_t> perm2(2);
-        perm2[0] = dist(gen) % 2;
-        perm2[1] = 1 - perm2[0];
-
-        std::vector<uint64_t> perm3(3);
-        perm3[0] = dist(gen) % 3;
-        perm3[1] = (perm3[0] + 1 + (dist(gen) % 2)) % 3;
-        perm3[2] = 3 - perm3[0] - perm3[1];
+        std::cout << "Integrating GGX (Level " << mipLevel << " of " << mipLevels << "): [" << std::flush;
 
         // Iterate over each pixel in the GGX cubemap in parallel
         // Inspired by the code samples from Epic's 2013 PBR course notes: https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf
         std::for_each(std::execution::par, pixels.begin(), pixels.end(), [&](CubePixel& pixel) {
             uint32_t ggxIndex = ((pixel.face * ggxEnv.height + pixel.y) * ggxEnv.width + pixel.x) * 4;
-
-            // Build a tangent space around the normal of this pixel
             Vec3<float> ggxNormal = linear::normalize(getNormalFrom(pixel, ggxEnv.width, ggxEnv.height));
-            Vec3<float> tangentX;
-            if (ggxNormal.z < 0.99) {
-                tangentX = linear::normalize(linear::cross(Vec3<float>(0.0, 0.0, 1.0), ggxNormal));
-            }
-            else {
-                tangentX = linear::normalize(linear::cross(Vec3<float>(1.0, 0.0, 0.0), ggxNormal));
-            }
-            Vec3<float> tangentY = linear::cross(ggxNormal, tangentX);
 
-            // Calculate the left term of the PBR split sum using importance sampling
-            const uint64_t numSamples = 1024;
+            // Integrate the split sum.
+            // As Epic gives it, its a sum over the importance-sampled luminances, but we can equivalently do this with quadrature by multiplying by the probability of each halfway-vector
+            // To speed up the integration, we first split our input environment into patches, and check the normal of each patch against the cutoff.
+            // That way, we can early out many pixels at once. This could throw away pixels that should make the cutoff, but only at the fringes where the pixels wouldn't contribute much anyways.
             Vec3<double> splitSum = Vec3<double>(0.0);
-            double splitSumWeight = 0.0;
-            for (uint64_t sample = 0; sample < numSamples; sample++) {
-                // Importance sample the GGX half-vector
-                Vec2<float> randUV = halton(sample + numSamples * ggxIndex / 4, perm2, perm3);
-                float phi = 2 * M_PI * randUV.x;
-                float cosTheta = sqrt((1.0 - randUV.y) / (1.0 + (alpha * alpha - 1.0) * randUV.y));
-                float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-                Vec3<float> halfVec = Vec3<float>(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+            double totalJacobian = 0.0;
+            for (uint32_t face = 0; face < 6; face++) {
+                for (uint32_t y = 0; y < inputEnv.height / patchSize; y++) {
+                    for (uint32_t x = 0; x < inputEnv.width / patchSize; x++) {
+                        uint32_t i = (face * inputEnv.height / patchSize + y) * inputEnv.width / patchSize + x;
 
-                // Transform the half vector to be around the GGX pixel normal instead of +Z
-                halfVec = halfVec.x * tangentX + halfVec.y * tangentY + halfVec.z * ggxNormal;
+                        // Check the patch against the cutoff
+                        Vec3<float> halfway = unitPatchNormals[i] + ggxNormal;
+                        float cosHalf = linear::dot(halfway, ggxNormal);
+                        if (cosHalf * cosHalf > cutoff * linear::length2(halfway)) {
+                            // Iterate over the pixels in the patch
+                            for (uint32_t subY = 0; subY < patchSize; subY++) {
+                                for (uint32_t subX = 0; subX < patchSize; subX++) {
+                                    uint32_t totalX = x * patchSize + subX;
+                                    uint32_t totalY = y * patchSize + subY;
+                                    uint32_t environmentIndex = ((face * inputEnv.height + totalY) * inputEnv.height + totalX) * 4;
 
-                // Reflect the view direction around the half vector.
-                // NOTE: We are approximating that the view direction is ggxNormal.
-                // This is not true in reality, but provides the most accurate reflections when we are looking head on.
-                Vec3<float> reflectionVec = 2.0f * linear::dot(ggxNormal, halfVec) * halfVec - ggxNormal;
+                                    // Check the pixel against the cutoff
+                                    halfway = unitEnvNormals[environmentIndex / 4] + ggxNormal;
+                                    cosHalf = linear::dot(halfway, ggxNormal);
+                                    if (cosHalf * cosHalf > cutoff * linear::length2(halfway)) {
+                                        // The pixel passed, so we can add to the integral.
+                                        // Calculate the Jacobian due to differing solid angle (see integrateLambertian() for justication)
+                                        float jacobian = linear::dot(ggxNormal, envNormals[environmentIndex / 4]);
+                                        float length2 = linear::length2(envNormals[environmentIndex / 4]);
+                                        jacobian /= (length2 * length2);
 
-                // Reject any reflection vectors that lie below the upper hemisphere around ggxNormal
-                double cosReflection = linear::dot(reflectionVec, ggxNormal);
-                if (cosReflection > 0.0) {
-                    // Add the luminance of the reflection to our split sum
-                    CubePixel environmentPixel;
-                    normalToCube(reflectionVec, inputEnv.width, inputEnv.height, environmentPixel);
-                    uint32_t environmentIndex = ((environmentPixel.face * inputEnv.height + environmentPixel.y) * inputEnv.width + environmentPixel.x) * 4;
+                                        // Calculate the GGX probability (D(h) * |n * h|)
+                                        float NoH = linear::dot(linear::normalize(halfway), ggxNormal);
+                                        float denom = NoH * NoH * (alphaSquared - 1) + 1;
+                                        float ggxProb = alphaSquared * NoH / (M_PI * denom * denom);
+                                        jacobian *= ggxProb;
 
-                    splitSum.x += inputEnv.data[environmentIndex] * cosReflection;
-                    splitSum.y += inputEnv.data[environmentIndex + 1] * cosReflection;
-                    splitSum.z += inputEnv.data[environmentIndex + 2] * cosReflection;
-                    splitSumWeight += cosReflection;
+                                        totalJacobian += jacobian;
+                                        splitSum.x += inputEnv.data[environmentIndex] * jacobian;
+                                        splitSum.y += inputEnv.data[environmentIndex + 1] * jacobian;
+                                        splitSum.z += inputEnv.data[environmentIndex + 2] * jacobian;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            splitSum = splitSum / Vec3<double>(splitSumWeight);
+            // Divide by the total sum of the Jacobians we used to give the final integral.
+            // In integrateLambertian(), we normalized exactly with the pixel area, however totalJacobian includes these terms already
+            // NOTE: In theory, totalJacobian (sans the normalization terms) should be less than tolerance. In practice, it's slightly greater.
+            // That might be an indication I am calculating it wrong, but I am not sure where I could be wrong. Either way, the difference isn't much.
+            splitSum = splitSum / totalJacobian;
 
             ggxEnv.data[ggxIndex] = splitSum.x;
             ggxEnv.data[ggxIndex + 1] = splitSum.y;
@@ -356,7 +367,8 @@ int main(int argc, char** argv) {
     // Parse command line options
     bool doIntegrateLambertian = false;
     bool doIntegrateGGX = false;
-    uint32_t cubemapSize = 32;
+    uint32_t cubemapSize = 16;
+    uint32_t inputDownscale = 1;
     std::optional<std::string> inputFile;
 
     int currentIndex = 1;
@@ -379,6 +391,21 @@ int main(int argc, char** argv) {
             auto sizeResult = std::from_chars(sizeStr.data(), sizeStr.data() + sizeStr.size(), cubemapSize);
             if (sizeResult.ec == std::errc::invalid_argument || sizeResult.ec == std::errc::result_out_of_range) {
                 PANIC("invalid argument to --cubemap-size");
+            }
+        }
+        else if (currentArg == "--input-downscale") {
+            currentIndex += 1;
+            if (currentIndex >= argc) {
+                PANIC("missing argument to --input-downscale");
+            }
+
+            std::string_view scaleStr = args[currentIndex];
+            auto scaleResult = std::from_chars(scaleStr.data(), scaleStr.data() + scaleStr.size(), inputDownscale);
+            if (scaleResult.ec == std::errc::invalid_argument || scaleResult.ec == std::errc::result_out_of_range) {
+                PANIC("invalid argument to --input-downscale");
+            }
+            if (inputDownscale == 0 || (inputDownscale & (inputDownscale - 1)) != 0) {
+                PANIC("scale factor for --input-downscale should be a power of 2 >= 1");
             }
         }
         else if (!inputFile.has_value()) {
@@ -412,6 +439,40 @@ int main(int argc, char** argv) {
     };
     convertRGBEtoRGB(pixels, inputEnv.data.data(), inputEnv.width * inputEnv.height * 6);
 
+    // Downscale our input environment by averaging if needed
+    uint32_t fullWidth = inputEnv.width;
+    uint32_t fullHeight = inputEnv.height;
+    if (inputDownscale != 1) {
+        Cubemap downscaledInputEnv {
+            .data = std::vector<float>(textureWidth / inputDownscale * textureHeight / inputDownscale * 6 * 4),
+            .width = static_cast<uint32_t>(textureWidth) / inputDownscale,
+            .height = static_cast<uint32_t>(textureHeight) / inputDownscale,
+        };
+
+        for (uint32_t y = 0; y < downscaledInputEnv.height * 6; y++) {
+            for (uint32_t x = 0; x < downscaledInputEnv.width; x++) {
+                uint32_t downscaleIndex = (y * downscaledInputEnv.width + x) * 4;
+                Vec3<float> avg = Vec3<float>(0.0f);
+                for (uint32_t avgY = 0; avgY < inputDownscale; avgY++) {
+                    for (uint32_t avgX = 0; avgX < inputDownscale; avgX++) {
+                        uint32_t fullX = x * inputDownscale + avgX;
+                        uint32_t fullY = y * inputDownscale + avgY;
+                        uint32_t fullSizeIndex = (fullY * textureWidth + fullX) * 4;
+                        avg.x += inputEnv.data[fullSizeIndex];
+                        avg.y += inputEnv.data[fullSizeIndex + 1];
+                        avg.z += inputEnv.data[fullSizeIndex + 2];
+                    }
+                }
+                avg = avg / static_cast<float>(inputDownscale * inputDownscale);
+                downscaledInputEnv.data[downscaleIndex] = avg.x;
+                downscaledInputEnv.data[downscaleIndex + 1] = avg.y;
+                downscaledInputEnv.data[downscaleIndex + 2] = avg.z;
+            }
+        }
+
+        inputEnv = downscaledInputEnv;
+    }
+
     // Free our original image buffer
     stbi_image_free(pixels);
 
@@ -419,7 +480,7 @@ int main(int argc, char** argv) {
         integrateLambertian(inputPath, inputEnv, cubemapSize);
     }
     if (doIntegrateGGX) {
-        integrateGGX(inputPath, inputEnv, cubemapSize);
+        integrateGGX(inputPath, inputEnv, fullWidth, fullHeight, cubemapSize);
     }
 
     return 0;

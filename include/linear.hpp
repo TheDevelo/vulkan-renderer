@@ -1,5 +1,4 @@
 #pragma once
-
 #include <array>
 #include <cstdlib>
 #include <cmath>
@@ -153,7 +152,7 @@ struct Vec<2, T> {
 template<typename T>
 struct Vec<3, T> {
     union {
-        std::array<T, 2> e;
+        std::array<T, 3> e;
         struct {
             T x;
             T y;
