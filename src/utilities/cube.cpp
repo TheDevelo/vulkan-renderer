@@ -308,10 +308,11 @@ void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint3
                                     uint32_t totalY = y * patchSize + subY;
                                     uint32_t environmentIndex = ((face * inputEnv.height + totalY) * inputEnv.height + totalX) * 4;
 
-                                    // Check the pixel against the cutoff
+                                    // Check the pixel against the cutoff AND that the reflection doesn't go through the surface
                                     halfway = unitEnvNormals[environmentIndex / 4] + ggxNormal;
                                     cosHalf = linear::dot(halfway, ggxNormal);
-                                    if (cosHalf * cosHalf > cutoff * linear::length2(halfway)) {
+                                    float cosRefl = linear::dot(unitEnvNormals[environmentIndex / 4], ggxNormal);
+                                    if (cosHalf * cosHalf > cutoff * linear::length2(halfway) && cosRefl > 0.0) {
                                         // The pixel passed, so we can add to the integral.
                                         // Calculate the Jacobian due to differing solid angle (see integrateLambertian() for justication)
                                         float jacobian = linear::dot(ggxNormal, envNormals[environmentIndex / 4]);
@@ -337,8 +338,6 @@ void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint3
             }
             // Divide by the total sum of the Jacobians we used to give the final integral.
             // In integrateLambertian(), we normalized exactly with the pixel area, however totalJacobian includes these terms already
-            // NOTE: In theory, totalJacobian (sans the normalization terms) should be less than tolerance. In practice, it's slightly greater.
-            // That might be an indication I am calculating it wrong, but I am not sure where I could be wrong. Either way, the difference isn't much.
             splitSum = splitSum / totalJacobian;
 
             ggxEnv.data[ggxIndex] = splitSum.x;
