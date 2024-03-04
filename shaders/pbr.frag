@@ -25,12 +25,12 @@ layout(location = 0) in VertexOutput frag;
 
 layout(location = 0) out vec4 outColor;
 
-// The PBR mixing formulae are inspired by glTF's mixing formulae:
-// https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#appendix-b-brdf-implementation
+// The PBR mixing formulae are inspired by Google's Filament documentation:
+// https://google.github.io/filament/Filament.md.html#materialsystem
 void main() {
     vec2 uv = getAdjustedUVs(frag, materialConstants, displacementMap);
     vec3 normal = getNormal(frag, materialConstants, normalMap, uv);
-    float cosThetaV = abs(dot(-normalize(frag.viewDir), normal));
+    float cosThetaV = max(dot(-normalize(frag.viewDir), normal), 0.0);
 
     // Get the albedo, roughness, and metalness
     vec4 albedo;
@@ -54,6 +54,7 @@ void main() {
     else {
         metalness = materialConstants.metalness;
     }
+    vec3 f0 = 0.04 * (1 - metalness) + albedo.rgb * metalness;
     vec2 brdf = texture(pbrBRDF, vec2(cosThetaV, roughness)).xy;
 
     // We perform our own trilinear filtering, since the hardware filtering from Vulkan seems to have stepping between LOD levels for some reason
@@ -61,19 +62,14 @@ void main() {
     float baseRoughnessLOD = floor(roughnessLOD);
     float roughnessT = roughnessLOD - baseRoughnessLOD;
 
-    // Calculate the specular and diffuse radiances
     vec3 mirrorDir = reflect(frag.viewDir, normal);
     vec3 diffuseLookupDir = (envInfo.transform * vec4(normal, 0.0)).xyz;
     vec3 specularLookupDir = (envInfo.transform * vec4(mirrorDir, 0.0)).xyz;
 
-    vec4 diffuse = albedo * texture(lambertianCubemap, diffuseLookupDir);
-    vec4 specular = textureLod(ggxCubemap, specularLookupDir, baseRoughnessLOD) * (1.0 - roughnessT) + textureLod(ggxCubemap, specularLookupDir, baseRoughnessLOD + 1.0) * roughnessT;
+    // Calculate the specular and diffuse radiances
+    vec3 diffuse = albedo.rgb * (1 - metalness) * texture(lambertianCubemap, diffuseLookupDir).rgb;
+    vec3 specularEnv = textureLod(ggxCubemap, specularLookupDir, baseRoughnessLOD).rgb * (1.0 - roughnessT) + textureLod(ggxCubemap, specularLookupDir, baseRoughnessLOD + 1.0).rgb * roughnessT;
+    vec3 specular = specularEnv * (f0 * brdf.x + brdf.y);
 
-    // Calculate the dielectric and metal radiances using Schlicks'
-    // We use a F0 = 0.04 for our dielectric material to represent an IOR of 1.5, which is a good representative choice
-    float schlick = pow(1 - cosThetaV, 5.0);
-    vec4 dielectric = mix(diffuse, specular * (brdf.x + brdf.y), 0.04 + 0.96 * schlick);
-    vec4 metal = specular * (albedo * brdf.x + brdf.y);
-
-    outColor = tonemap(frag.color * mix(dielectric, metal, metalness), camera.exposure);
+    outColor = tonemap(frag.color * vec4(diffuse + specular, albedo.a), camera.exposure);
 }
