@@ -211,7 +211,7 @@ void Scene::updateEnvironmentTransforms() {
 
             worldToEnvMatrix = linear::mmul(worldToEnvMatrix, node.invTransform);
         }
-        environment.worldToEnv = worldToEnvMatrix;
+        environment.info.transform = worldToEnvMatrix;
     }
 }
 

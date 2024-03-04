@@ -23,6 +23,12 @@ struct alignas(256) CameraInfo {
     float exposure;
 };
 
+// Environment information used in the uniforms.
+struct alignas(256) EnvironmentInfo {
+    Mat4<float> transform;
+    uint32_t ggxMipLevels;
+};
+
 // Data required for rendering, but not managed by the scene
 struct SceneRenderInfo {
     VkCommandBuffer commandBuffer;
@@ -145,10 +151,11 @@ struct Environment {
 
     std::unique_ptr<CombinedCubemap> radiance;
     std::unique_ptr<CombinedCubemap> lambertian;
+    std::unique_ptr<CombinedCubemap> ggx;
 
     // Ancestor path to Environment, so that we can easily calculate the appropriate transforms
     std::vector<uint32_t> ancestors;
-    Mat4<float> worldToEnv;
+    EnvironmentInfo info;
     VkDescriptorSet descriptorSet;
 };
 

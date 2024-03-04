@@ -15,11 +15,11 @@ layout(set = 1, binding = 3) uniform sampler2D albedoMap;
 layout(set = 1, binding = 4) uniform sampler2D roughnessMap;
 layout(set = 1, binding = 5) uniform sampler2D metalnessMap;
 
-layout(set = 2, binding = 0) uniform EnvTransform {
-    mat4 envTransform;
+layout(set = 2, binding = 0) uniform EnvironmentInfoUBO {
+    EnvironmentInfo envInfo;
 };
 layout(set = 2, binding = 2) uniform samplerCube lambertianCubemap;
-layout(set = 2, binding = 1) uniform samplerCube ggxCubemap;
+layout(set = 2, binding = 3) uniform samplerCube ggxCubemap;
 
 layout(location = 0) in VertexOutput frag;
 
@@ -56,12 +56,18 @@ void main() {
     }
     vec2 brdf = texture(pbrBRDF, vec2(cosThetaV, roughness)).xy;
 
+    // We perform our own trilinear filtering, since the hardware filtering from Vulkan seems to have stepping between LOD levels for some reason
+    float roughnessLOD = roughness * float(envInfo.ggxMipLevels);
+    float baseRoughnessLOD = floor(roughnessLOD);
+    float roughnessT = roughnessLOD - baseRoughnessLOD;
+
     // Calculate the specular and diffuse radiances
     vec3 mirrorDir = reflect(frag.viewDir, normal);
-    vec3 diffuseLookupDir = (envTransform * vec4(normal, 0.0)).xyz;
-    vec3 specularLookupDir = (envTransform * vec4(mirrorDir, 0.0)).xyz;
+    vec3 diffuseLookupDir = (envInfo.transform * vec4(normal, 0.0)).xyz;
+    vec3 specularLookupDir = (envInfo.transform * vec4(mirrorDir, 0.0)).xyz;
+
     vec4 diffuse = albedo * texture(lambertianCubemap, diffuseLookupDir);
-    vec4 specular = texture(ggxCubemap, specularLookupDir);
+    vec4 specular = textureLod(ggxCubemap, specularLookupDir, baseRoughnessLOD) * (1.0 - roughnessT) + textureLod(ggxCubemap, specularLookupDir, baseRoughnessLOD + 1.0) * roughnessT;
 
     // Calculate the dielectric and metal radiances using Schlicks'
     // We use a F0 = 0.04 for our dielectric material to represent an IOR of 1.5, which is a good representative choice

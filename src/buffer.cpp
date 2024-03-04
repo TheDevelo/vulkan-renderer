@@ -126,7 +126,7 @@ CombinedImage::CombinedImage(CombinedImage&& src) {
 // =============================================================================
 // CombinedCubemap
 // =============================================================================
-CombinedCubemap::CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstanceIn, uint32_t width, uint32_t height,
+CombinedCubemap::CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstanceIn, uint32_t width, uint32_t height, uint32_t mipLevels,
                                  VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImageAspectFlags aspectFlags) : renderInstance(renderInstanceIn) {
     VkImageCreateInfo imageInfo {
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -134,7 +134,7 @@ CombinedCubemap::CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstance
         .imageType = VK_IMAGE_TYPE_2D,
         .format = format,
         .extent = { width, height, 1 },
-        .mipLevels = 1,
+        .mipLevels = mipLevels,
         .arrayLayers = 6,
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .tiling = tiling,
@@ -172,7 +172,7 @@ CombinedCubemap::CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstance
         .subresourceRange = VkImageSubresourceRange {
             .aspectMask = aspectFlags,
             .baseMipLevel = 0,
-            .levelCount = 1,
+            .levelCount = mipLevels,
             .baseArrayLayer = 0,
             .layerCount = 6,
         },
@@ -211,7 +211,7 @@ void copyBuffers(VkCommandBuffer commandBuffer, BufferCopy* bufferCopyInfos, uin
     }
 }
 
-void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t layers) {
+void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, VkImageSubresourceRange imageRange) {
     VkImageMemoryBarrier barrier {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .oldLayout = oldLayout,
@@ -219,13 +219,7 @@ void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkForma
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = image,
-        .subresourceRange = VkImageSubresourceRange {
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-            .baseMipLevel = 0,
-            .levelCount = 1,
-            .baseArrayLayer = 0,
-            .layerCount = layers,
-        },
+        .subresourceRange = imageRange,
     };
 
     // Determine the source and destination stages/access masks. Currently hardcoded for our old/new layout pairs, maybe there is a more dynamic way to do this?
@@ -268,17 +262,12 @@ void transitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkForma
     vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
-void copyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height, uint32_t layers) {
+void copyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height, VkImageSubresourceLayers imageLayers) {
     VkBufferImageCopy region {
         .bufferOffset = 0,
         .bufferRowLength = 0,
         .bufferImageHeight = 0,
-        .imageSubresource = VkImageSubresourceLayers {
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-            .mipLevel = 0,
-            .baseArrayLayer = 0,
-            .layerCount = layers,
-        },
+        .imageSubresource = imageLayers,
         .imageOffset = { 0, 0, 0 },
         .imageExtent = { width, height, 1 },
     };
@@ -334,7 +323,7 @@ std::unique_ptr<CombinedImage> loadImage(std::shared_ptr<RenderInstance>& render
     VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
 
     transitionImageLayout(commandBuffer, image->image, format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    copyBufferToImage(commandBuffer, stagingBuffer.buffer, image->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), 1);
+    copyBufferToImage(commandBuffer, stagingBuffer.buffer, image->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight));
     transitionImageLayout(commandBuffer, image->image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
     endSingleUseCBuffer(*renderInstance, commandBuffer);
@@ -342,7 +331,8 @@ std::unique_ptr<CombinedImage> loadImage(std::shared_ptr<RenderInstance>& render
     return image;
 }
 
-std::unique_ptr<CombinedCubemap> loadCubemap(std::shared_ptr<RenderInstance>& renderInstance, std::string const& path) {
+// NOTE: mipLevels controls how many mipmap levels get created, but doesn't fill/transition them
+std::unique_ptr<CombinedCubemap> loadCubemap(std::shared_ptr<RenderInstance>& renderInstance, std::string const& path, uint32_t mipLevels) {
     // Load the texture
     int textureWidth, textureHeight, textureChannels;
     stbi_uc* pixels = stbi_load(path.c_str(), &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);
@@ -369,17 +359,91 @@ std::unique_ptr<CombinedCubemap> loadCubemap(std::shared_ptr<RenderInstance>& re
     stbi_image_free(pixels);
 
     // Create the GPU-side image
-    std::unique_ptr<CombinedCubemap> cubemap = std::make_unique<CombinedCubemap>(renderInstance, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), VK_FORMAT_R32G32B32A32_SFLOAT,
+    std::unique_ptr<CombinedCubemap> cubemap = std::make_unique<CombinedCubemap>(renderInstance, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), mipLevels, VK_FORMAT_R32G32B32A32_SFLOAT,
                                                                                  VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
 
     // Copy staging buffer to our image and prepare it for shader reads
     VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
 
-    transitionImageLayout(commandBuffer, cubemap->image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 6);
-    copyBufferToImage(commandBuffer, stagingBuffer.buffer, cubemap->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight), 6);
-    transitionImageLayout(commandBuffer, cubemap->image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 6);
+    transitionImageLayout(commandBuffer, cubemap->image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VkImageSubresourceRange {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 6,
+            });
+    copyBufferToImage(commandBuffer, stagingBuffer.buffer, cubemap->image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight),
+            VkImageSubresourceLayers {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 6,
+            });
+    transitionImageLayout(commandBuffer, cubemap->image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VkImageSubresourceRange {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 6,
+            });
 
     endSingleUseCBuffer(*renderInstance, commandBuffer);
 
     return cubemap;
+}
+
+void loadMipmapIntoCubemap(std::shared_ptr<RenderInstance>& renderInstance, CombinedCubemap& cubemap, std::string const& path, uint32_t mipLevel) {
+    // Load the texture
+    int textureWidth, textureHeight, textureChannels;
+    stbi_uc* pixels = stbi_load(path.c_str(), &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);
+    if (!pixels) {
+        PANIC("failed to load texture image!");
+    }
+    textureHeight /= 6;
+
+    // Convert image from RGBE format
+    std::vector<float> rgbFloats;
+    rgbFloats.resize(textureWidth * textureHeight * 6 * 4);
+    convertRGBEtoRGB(pixels, rgbFloats.data(), textureWidth * textureHeight * 6);
+
+    // Create a staging buffer for our image
+    VkDeviceSize imageSize = rgbFloats.size() * sizeof(float);
+    CombinedBuffer stagingBuffer(renderInstance, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    void* data;
+    vkMapMemory(renderInstance->device, stagingBuffer.bufferMemory, 0, imageSize, 0, &data);
+    memcpy(data, rgbFloats.data(), static_cast<size_t>(imageSize));
+    vkUnmapMemory(renderInstance->device, stagingBuffer.bufferMemory);
+
+    // Free our CPU-side loaded texture
+    stbi_image_free(pixels);
+
+    // Copy staging buffer to the desired mipmap leveli in the cubemap and prepare it for shader reads
+    VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
+    transitionImageLayout(commandBuffer, cubemap.image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VkImageSubresourceRange {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = mipLevel,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 6,
+            });
+    copyBufferToImage(commandBuffer, stagingBuffer.buffer, cubemap.image, static_cast<uint32_t>(textureWidth), static_cast<uint32_t>(textureHeight),
+            VkImageSubresourceLayers {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = mipLevel,
+                .baseArrayLayer = 0,
+                .layerCount = 6,
+            });
+    transitionImageLayout(commandBuffer, cubemap.image, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VkImageSubresourceRange {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = mipLevel,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 6,
+            });
+    endSingleUseCBuffer(*renderInstance, commandBuffer);
 }

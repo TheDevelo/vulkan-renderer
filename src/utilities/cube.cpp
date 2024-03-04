@@ -165,8 +165,9 @@ void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint3
         // The cutoff is cos^2(theta), where theta is the angle such that 0 to theta encompasses tolerance% of the GGX probability
         // A higher tolerance means higher quality, but longer to integrate. 0.99 is a good balance between quality and performance from my testing.
         // The formula for the cutoff was derived after a few hours of finagling on WolframAlpha
+        // We also get issues if the cutoff is too high, so we set a max of 0.95
         const float tolerance = 0.99;
-        float cutoff = 1 - (alphaSquared * tolerance) / ((alphaSquared - 1) * tolerance + 1);
+        float cutoff = std::min(1 - (alphaSquared * tolerance) / ((alphaSquared - 1) * tolerance + 1), 0.95f);
 
         // Precompute the normals for pixels on the input environment, and representatives for input environment patches
         // Precomputing here speeds up the main integration loop by a lot, since we need the normals to check against the cutoff.
@@ -266,9 +267,8 @@ void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint3
                                     halfway = unitEnvNormals[environmentIndex / 4] + ggxNormal;
                                     cosHalf = linear::dot(halfway, ggxNormal);
                                     float cos2Half = cosHalf * cosHalf;
-                                    float adjCutoff = cutoff * linear::length2(halfway);
                                     float cosRefl = linear::dot(unitEnvNormals[environmentIndex / 4], ggxNormal);
-                                    if (cos2Half > adjCutoff && cosRefl > 0.0) {
+                                    if (cos2Half > cutoff * linear::length2(halfway) && cosRefl > 0.0) {
                                         // The pixel passed, so we can add to the integral.
                                         // Calculate the Jacobian due to differing solid angle (see integrateLambertian() for justication)
                                         float jacobian = linear::dot(ggxNormal, envNormals[environmentIndex / 4]);
@@ -286,7 +286,7 @@ void integrateGGX(std::filesystem::path filePath, Cubemap const& inputEnv, uint3
                                         // While the pixels near the cutoff should have a small Jacobian, the pixels can offset it with their brightness.
                                         // So the very bright pixels still have a large contribution to the integral near the cutoff, and cutting them off creates a hard edge
                                         // By weighting by the squared distance to the cutoff, we can fade the brightness to 0 near the cutoff, removing the hard edge.
-                                        float cutoffWeight = (cos2Half - adjCutoff) / (1.0 - adjCutoff);
+                                        float cutoffWeight = (cos2Half / linear::length2(halfway) - cutoff) / (1.0 - cutoff);
                                         jacobian *= cutoffWeight * cutoffWeight;
 
                                         totalJacobian += jacobian;

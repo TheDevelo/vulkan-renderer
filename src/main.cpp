@@ -230,7 +230,7 @@ private:
             .compareEnable = VK_FALSE,
             .compareOp = VK_COMPARE_OP_ALWAYS,
             .minLod = 0.0f,
-            .maxLod = 0.0f,
+            .maxLod = VK_LOD_CLAMP_NONE,
             .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
             .unnormalizedCoordinates = VK_FALSE,
         };
@@ -248,7 +248,7 @@ private:
             .compareEnable = VK_FALSE,
             .compareOp = VK_COMPARE_OP_ALWAYS,
             .minLod = 0.0f,
-            .maxLod = 0.0f,
+            .maxLod = VK_LOD_CLAMP_NONE,
             .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
             .unnormalizedCoordinates = VK_FALSE,
         };
@@ -264,7 +264,7 @@ private:
         vkMapMemory(renderInstance->device, cameraUniformBuffer->bufferMemory, 0, cameraBufferSize, 0, &cameraUniformMap);
 
         // Create environment uniform buffers
-        VkDeviceSize environmentBufferSize = sizeof(Mat4<float>) * MAX_FRAMES_IN_FLIGHT;
+        VkDeviceSize environmentBufferSize = sizeof(EnvironmentInfo) * MAX_FRAMES_IN_FLIGHT;
         environmentUniformBuffers.reserve(scene.environments.size());
         environmentUniformMaps.resize(scene.environments.size());
 
@@ -286,7 +286,7 @@ private:
         // Copy staging buffer to our PBR BRDF image and prepare it for shader reads
         VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
         transitionImageLayout(commandBuffer, pbrBRDFImage->image, VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        copyBufferToImage(commandBuffer, stagingBuffer.buffer, pbrBRDFImage->image, 256, 256, 1);
+        copyBufferToImage(commandBuffer, stagingBuffer.buffer, pbrBRDFImage->image, 256, 256);
         transitionImageLayout(commandBuffer, pbrBRDFImage->image, VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         endSingleUseCBuffer(*renderInstance, commandBuffer);
     }
@@ -307,7 +307,7 @@ private:
 
         uint32_t uniformDescs = simpleEnvMirrorDescs + lambertianDescs + pbrDescs;
         uint32_t dynamicUniformDescs = cameraDescs + environmentDescs;
-        uint32_t combinedImageSamplerDescs = cameraDescs + 2 * environmentDescs + 2 * simpleEnvMirrorDescs + 3 * lambertianDescs + 5 * pbrDescs;
+        uint32_t combinedImageSamplerDescs = cameraDescs + 3 * environmentDescs + 2 * simpleEnvMirrorDescs + 3 * lambertianDescs + 5 * pbrDescs;
 
         // Create the descriptor pool
         // NOTE: Each type needs at least 1 descriptor to allocate, or else we get an error
@@ -436,7 +436,7 @@ private:
             VkDescriptorBufferInfo& envBufferInfo = bufferWrites.emplace_back(VkDescriptorBufferInfo {
                 .buffer = environmentUniformBuffers[i].buffer,
                 .offset = 0,
-                .range = sizeof(Mat4<float>),
+                .range = sizeof(EnvironmentInfo),
             });
             VkDescriptorImageInfo& radianceInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
                 .sampler = repeatingSampler,
@@ -446,6 +446,11 @@ private:
             VkDescriptorImageInfo& lambertianInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
                 .sampler = repeatingSampler,
                 .imageView = scene.environments[i].lambertian->imageView,
+                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            });
+            VkDescriptorImageInfo& ggxInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+                .sampler = repeatingSampler,
+                .imageView = scene.environments[i].ggx->imageView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             });
 
@@ -475,6 +480,15 @@ private:
                 .descriptorCount = 1,
                 .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .pImageInfo = &lambertianInfo,
+            });
+            descriptorWrites.emplace_back(VkWriteDescriptorSet {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = envDescriptorSets[i],
+                .dstBinding = 3,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &ggxInfo,
             });
 
             scene.environments[i].descriptorSet = envDescriptorSets[i];
@@ -779,8 +793,8 @@ private:
         uint8_t* dstCameraMap = reinterpret_cast<uint8_t*>(cameraUniformMap) + currentFrame * sizeof(CameraInfo);
         memcpy(dstCameraMap, &scene.cameraInfo, sizeof(CameraInfo));
         for (size_t i = 0; i < scene.environments.size(); i++) {
-            uint8_t* dstEnvMap = reinterpret_cast<uint8_t*>(environmentUniformMaps[i]) + currentFrame * sizeof(Mat4<float>);
-            memcpy(dstEnvMap, &scene.environments[i].worldToEnv, sizeof(Mat4<float>));
+            uint8_t* dstEnvMap = reinterpret_cast<uint8_t*>(environmentUniformMaps[i]) + currentFrame * sizeof(EnvironmentInfo);
+            memcpy(dstEnvMap, &scene.environments[i].info, sizeof(EnvironmentInfo));
         }
 
         // Record our render commands
@@ -896,7 +910,7 @@ private:
             .commandBuffer = commandBuffer,
             .pipelines = *materialPipelines,
             .cameraDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(CameraInfo)),
-            .environmentDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(Mat4<float>)),
+            .environmentDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(EnvironmentInfo)),
         };
         scene.renderScene(sceneRenderInfo);
 

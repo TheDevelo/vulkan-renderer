@@ -507,6 +507,9 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
         Environment env {
             .name = envObj.at("name").as_str(),
+            .info = EnvironmentInfo {
+                .ggxMipLevels = 1,
+            },
         };
 
         // Load the radiance map
@@ -519,6 +522,22 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         std::filesystem::path lambertianPath = filePath;
         lambertianPath.replace_extension(".lambertian.png");
         env.lambertian = loadCubemap(renderInstance, lambertianPath.string());
+
+        // Load the GGX cubemap stack (with the standard environment as level 0)
+        while (true) {
+            std::filesystem::path ggxMipmapPath = filePath;
+            ggxMipmapPath.replace_extension(string_format(".ggx%u.png", env.info.ggxMipLevels));
+            if (!std::filesystem::exists(ggxMipmapPath)) {
+                break;
+            }
+            env.info.ggxMipLevels += 1;
+        }
+        env.ggx = loadCubemap(renderInstance, filePath.string(), env.info.ggxMipLevels);
+        for (uint32_t mipLevel = 1; mipLevel < env.info.ggxMipLevels; mipLevel++) {
+            std::filesystem::path ggxMipmapPath = filePath;
+            ggxMipmapPath.replace_extension(string_format(".ggx%u.png", mipLevel));
+            loadMipmapIntoCubemap(renderInstance, *env.ggx, ggxMipmapPath.string(), mipLevel);
+        }
 
         environments.push_back(std::move(env));
     }

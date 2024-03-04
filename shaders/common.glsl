@@ -16,6 +16,11 @@ struct MaterialConstants {
     bool useMetalnessMap;
 };
 
+struct EnvironmentInfo {
+    mat4 transform;
+    uint ggxMipLevels;
+};
+
 struct VertexOutput {
     vec4 color;
     vec3 normal;
