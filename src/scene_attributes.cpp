@@ -163,6 +163,7 @@ std::vector<Vertex> Scene::loadVerticesFromAttributes(json::object const& attrib
 
         if (tangentStream.has_value()) {
             vertices[i].tangent = tangentStream.value().nextVec4f();
+            vertices[i].tangent.w *= -1;
         }
         else {
             // TODO: Maybe pick a tangent vector that is actually tangent to the normal? Shouldn't matter to set as 0, since no tangent means no normal mapping
@@ -171,6 +172,7 @@ std::vector<Vertex> Scene::loadVerticesFromAttributes(json::object const& attrib
 
         if (uvStream.has_value()) {
             vertices[i].uv = uvStream.value().nextVec2f();
+            vertices[i].uv.v = 1 - vertices[i].uv.v;
         }
         else {
             vertices[i].uv = Vec2<float>(0.0f);
