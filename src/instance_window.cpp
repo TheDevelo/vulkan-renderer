@@ -21,7 +21,7 @@ static double prevXPos = 0.0f;
 static double prevYPos = 0.0f;
 
 // Used for calculating time between processEvents calls
-static std::chrono::system_clock::time_point prevTime;
+static std::optional<std::chrono::system_clock::time_point> prevTime;
 
 static void glfwKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     RenderInstance* instance = reinterpret_cast<RenderInstance*>(glfwGetWindowUserPointer(window));
@@ -129,8 +129,6 @@ void RenderInstance::initRealWindow() {
     glfwSetKeyCallback(window, glfwKeyCallback);
     glfwSetMouseButtonCallback(window, glfwMouseButtonCallback);
     glfwSetCursorPosCallback(window, glfwMouseCursorCallback);
-
-    prevTime = std::chrono::high_resolution_clock::now();
 }
 
 bool RenderInstance::shouldCloseReal() {
@@ -169,8 +167,12 @@ float RenderInstance::processEventsReal() {
         eventQueue.emplace_back(cameraMoveEvent);
     }
 
+    if (!prevTime.has_value()) {
+        prevTime = std::chrono::high_resolution_clock::now();
+    }
+
     std::chrono::system_clock::time_point curTime = std::chrono::high_resolution_clock::now();
-    float processTime = std::chrono::duration<float, std::chrono::seconds::period>(curTime - prevTime).count();
+    float processTime = std::chrono::duration<float, std::chrono::seconds::period>(curTime - prevTime.value()).count();
     prevTime = curTime;
     return processTime;
 }
