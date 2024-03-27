@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "linear.hpp"
+
 // JSON parser inspired by sejp. Now with more recursion!
 namespace json {
     class Value; // Forward declaration because C++ :)
@@ -46,13 +48,56 @@ namespace json {
         bool as_bool() const;
         std::nullptr_t as_null() const;
 
+        inline bool is_obj() const { return valType == JSON_OBJ; }
+        inline bool is_arr() const { return valType == JSON_ARR; }
+        inline bool is_str() const { return valType == JSON_STR; }
+        inline bool is_num() const { return valType == JSON_NUM; }
+        inline bool is_bool() const { return valType == JSON_BOOL_TRUE || valType == JSON_BOOL_FALSE; }
+        inline bool is_null() const { return valType == JSON_NULL; }
 
-    inline bool is_obj() const { return valType == JSON_OBJ; }
-    inline bool is_arr() const { return valType == JSON_ARR; }
-    inline bool is_str() const { return valType == JSON_STR; }
-    inline bool is_num() const { return valType == JSON_NUM; }
-    inline bool is_bool() const { return valType == JSON_BOOL_TRUE || valType == JSON_BOOL_FALSE; }
-    inline bool is_null() const { return valType == JSON_NULL; }
+        // Composite types - Helpers for easier JSON handling
+        inline bool is_vec3f() const {
+            if (is_arr() || as_arr().size() != 3) {
+                return false;
+            }
+            array const& arrVal = as_arr();
+            for (int i = 0; i < 3; i++) {
+                if (!arrVal[i].is_num()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        inline Vec3<float> as_vec3f() const {
+            array const& arrVal = as_arr();
+            Vec3<float> retVal;
+            for (int i = 0; i < 3; i++) {
+                retVal[i] = arrVal[i].is_num();
+            }
+            return retVal;
+        }
+
+        inline bool is_vec4f() const {
+            if (is_arr() || as_arr().size() != 4) {
+                return false;
+            }
+            array const& arrVal = as_arr();
+            for (int i = 0; i < 4; i++) {
+                if (!arrVal[i].is_num()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        inline Vec4<float> as_vec4f() const {
+            array const& arrVal = as_arr();
+            Vec4<float> retVal;
+            for (int i = 0; i < 4; i++) {
+                retVal[i] = arrVal[i].is_num();
+            }
+            return retVal;
+        }
+
     private:
         std::shared_ptr<Hierarchy> data;
         uint32_t index;
@@ -62,6 +107,4 @@ namespace json {
     // JSON parsing functions
     Value load(std::string const& filename);
     Value parse(std::string const& jsonStr);
-
-    // Helpers for easier JSON handling
 }

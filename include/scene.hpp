@@ -62,6 +62,7 @@ struct Node {
     std::optional<uint32_t> meshIndex;
     std::optional<uint32_t> cameraIndex;
     std::optional<uint32_t> environmentIndex;
+    std::optional<uint32_t> lightIndex;
 
     // Bounding box used for BVH culling. Will be None if the node is dynamic (it or a child is animated)
     std::optional<AxisAlignedBoundingBox> bbox;
@@ -159,6 +160,33 @@ struct Environment {
     VkDescriptorSet descriptorSet;
 };
 
+struct LightSun {
+    float strength;
+    float angle;
+};
+
+struct LightSphere {
+    float radius;
+    float power;
+    std::optional<float> limit;
+};
+
+struct LightSpot {
+    float radius;
+    float power;
+    std::optional<float> limit;
+    float fov;
+    float blend;
+};
+
+struct Light {
+    std::string name;
+
+    Vec3<float> tint;
+    std::variant<LightSun, LightSphere, LightSpot> lightInfo;
+    uint32_t shadowMapSize;
+};
+
 struct UserCamera {
     float theta; // Measures Z angle, ranges from -PI/2 to PI/2
     float phi; // Measures XY angle
@@ -239,6 +267,7 @@ private:
     std::vector<Node> nodes;
     std::vector<Mesh> meshes;
     std::vector<Driver> drivers;
+    std::vector<Light> lights;
     std::vector<CombinedBuffer> buffers;
 
     // We store a separate struct for the culling camera, which simplifies culling logic & makes debug mode possible

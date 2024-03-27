@@ -69,6 +69,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     std::map<uint32_t, uint32_t> driverIdMap;
     std::map<uint32_t, uint32_t> materialIdMap;
     std::map<uint32_t, uint32_t> environmentIdMap;
+    std::map<uint32_t, uint32_t> lightIdMap;
     materialIdMap.insert_or_assign(0, 0); // Insert a dummy element to reserve for the default material
 
     for (auto e = sceneArr.begin() + 1; e != sceneArr.end(); e++) {
@@ -113,6 +114,10 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             uint32_t environmentId = environmentIdMap.size();
             environmentIdMap.insert_or_assign(s72Id, environmentId);
         }
+        else if (type == "LIGHT") {
+            uint32_t lightId = lightIdMap.size();
+            lightIdMap.insert_or_assign(s72Id, lightId);
+        }
         else {
             PANIC("Scene loading error: s72 object has an invalid type");
         }
@@ -133,26 +138,16 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
         // Get translation, rotation, and scale vectors
         Vec3<float> t = Vec3<float>(0.0f);
-        if (nodeObj.contains("translation") && nodeObj.at("translation").is_arr() && nodeObj.at("translation").as_arr().size() == 3) {
-            json::array const& vec = nodeObj.at("translation").as_arr();
-            t.x = vec[0].as_num();
-            t.y = vec[1].as_num();
-            t.z = vec[2].as_num();
+        if (nodeObj.contains("translation") && nodeObj.at("translation").is_vec3f()) {
+            t = nodeObj.at("translation").as_vec3f();
         }
         Vec4<float> q = Vec4<float>(0.0f, 0.0f, 0.0f, 1.0f);
-        if (nodeObj.contains("rotation") && nodeObj.at("rotation").is_arr() && nodeObj.at("rotation").as_arr().size() == 4) {
-            json::array const& vec = nodeObj.at("rotation").as_arr();
-            q.x = vec[0].as_num();
-            q.y = vec[1].as_num();
-            q.z = vec[2].as_num();
-            q.w = vec[3].as_num();
+        if (nodeObj.contains("rotation") && nodeObj.at("rotation").is_vec4f()) {
+            q = nodeObj.at("rotation").as_vec4f();
         }
         Vec3<float> s = Vec3<float>(1.0f);
-        if (nodeObj.contains("scale") && nodeObj.at("scale").is_arr() && nodeObj.at("scale").as_arr().size() == 3) {
-            json::array const& vec = nodeObj.at("scale").as_arr();
-            s.x = vec[0].as_num();
-            s.y = vec[1].as_num();
-            s.z = vec[2].as_num();
+        if (nodeObj.contains("scale") && nodeObj.at("scale").is_vec3f()) {
+            s = nodeObj.at("scale").as_vec3f();
         }
 
         Node node {
@@ -175,6 +170,10 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         if (nodeObj.contains("environment")) {
             uint32_t jsonId = nodeObj.at("environment").as_num();
             node.environmentIndex = environmentIdMap.at(jsonId);
+        }
+        if (nodeObj.contains("light")) {
+            uint32_t jsonId = nodeObj.at("light").as_num();
+            node.lightIndex = lightIdMap.at(jsonId);
         }
 
         // Add child nodes
@@ -437,12 +436,8 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             json::object const& lambertianObj = materialObj.at("lambertian").as_obj();
 
             // Load Lambertian albedo
-            if (lambertianObj.contains("albedo") && lambertianObj.at("albedo").is_arr()) {
-                json::array const& albedoArr = lambertianObj.at("albedo").as_arr();
-                if (albedoArr.size() != 3 || !albedoArr[0].is_num() || !albedoArr[1].is_num() || !albedoArr[2].is_num()) {
-                    PANIC("Scene loading error: invalid albedo vector");
-                }
-                material.albedoMap = Vec3<float>(albedoArr[0].as_num(), albedoArr[1].as_num(), albedoArr[2].as_num());
+            if (lambertianObj.contains("albedo") && lambertianObj.at("albedo").is_vec3f()) {
+                material.albedoMap = lambertianObj.at("albedo").as_vec3f();
             }
             else if (lambertianObj.contains("albedo") && lambertianObj.at("albedo").is_obj()) {
                 json::object const& albedoObj = lambertianObj.at("albedo").as_obj();
@@ -456,12 +451,8 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             json::object const& pbrObj = materialObj.at("pbr").as_obj();
 
             // Load PBR albedo
-            if (pbrObj.contains("albedo") && pbrObj.at("albedo").is_arr()) {
-                json::array const& albedoArr = pbrObj.at("albedo").as_arr();
-                if (albedoArr.size() != 3 || !albedoArr[0].is_num() || !albedoArr[1].is_num() || !albedoArr[2].is_num()) {
-                    PANIC("Scene loading error: invalid albedo vector");
-                }
-                material.albedoMap = Vec3<float>(albedoArr[0].as_num(), albedoArr[1].as_num(), albedoArr[2].as_num());
+            if (pbrObj.contains("albedo") && pbrObj.at("albedo").is_vec3f()) {
+                material.albedoMap = pbrObj.at("albedo").as_vec3f();
             }
             else if (pbrObj.contains("albedo") && pbrObj.at("albedo").is_obj()) {
                 json::object const& albedoObj = pbrObj.at("albedo").as_obj();
@@ -499,7 +490,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     // Build a buffer containing a MaterialConstants for each material
     buildMaterialConstantsBuffer(renderInstance);
 
-    // Iterate through all the materials and construct their Material representation
+    // Iterate through all the environments and construct their Environment representation
     environments.reserve(environmentIdMap.size());
     for (auto idPair : environmentIdMap) {
         uint32_t s72Id = idPair.first;
@@ -540,6 +531,76 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         }
 
         environments.push_back(std::move(env));
+    }
+
+    // Iterate through all the lights and construct their Light representation
+    for (auto idPair : lightIdMap) {
+        uint32_t s72Id = idPair.first;
+        json::object const& lightObj = sceneArr[s72Id].as_obj();
+
+        Light light {
+            .name = lightObj.at("name").as_str(),
+            .tint = Vec3<float>(1.0),
+            .shadowMapSize = 0,
+        };
+
+        if (lightObj.contains("tint") && lightObj.at("tint").is_vec3f()) {
+            light.tint = lightObj.at("tint").as_vec3f();
+        }
+
+        if (lightObj.contains("shadow") && lightObj.at("shadow").is_num()) {
+            light.shadowMapSize = lightObj.at("shadow").as_num();
+        }
+
+        if (lightObj.contains("sun") && lightObj.at("sun").is_obj()) {
+            json::object const& sunObj = lightObj.at("sun").as_obj();
+            PANIC_JSON_MISSING(sunObj, "strength", num, "Scene loading error: sun light missing strength");
+            PANIC_JSON_MISSING(sunObj, "angle", num, "Scene loading error: sun light missing angle");
+
+            light.lightInfo = LightSun {
+                .strength = static_cast<float>(sunObj.at("strength").as_num()),
+                .angle = static_cast<float>(sunObj.at("angle").as_num()),
+            };
+        }
+        else if (lightObj.contains("sphere") && lightObj.at("sphere").is_obj()) {
+            json::object const& sphereObj = lightObj.at("sphere").as_obj();
+            PANIC_JSON_MISSING(sphereObj, "radius", num, "Scene loading error: sphere light missing radius");
+            PANIC_JSON_MISSING(sphereObj, "power", num, "Scene loading error: sphere light missing power");
+
+            LightSphere sphere {
+                .radius = static_cast<float>(sphereObj.at("radius").as_num()),
+                .power = static_cast<float>(sphereObj.at("power").as_num()),
+            };
+            if (sphereObj.contains("limit") && sphereObj.at("limit").is_num()) {
+                sphere.limit = sphereObj.at("limit").as_num();
+            }
+
+            light.lightInfo = sphere;
+        }
+        else if (lightObj.contains("spot") && lightObj.at("spot").is_obj()) {
+            json::object const& spotObj = lightObj.at("spot").as_obj();
+            PANIC_JSON_MISSING(spotObj, "radius", num, "Scene loading error: spot light missing radius");
+            PANIC_JSON_MISSING(spotObj, "power", num, "Scene loading error: spot light missing power");
+            PANIC_JSON_MISSING(spotObj, "fov", num, "Scene loading error: spot light missing fov");
+            PANIC_JSON_MISSING(spotObj, "blend", num, "Scene loading error: spot light missing blend");
+
+            LightSpot spot {
+                .radius = static_cast<float>(spotObj.at("radius").as_num()),
+                .power = static_cast<float>(spotObj.at("power").as_num()),
+                .fov = static_cast<float>(spotObj.at("fov").as_num()),
+                .blend = static_cast<float>(spotObj.at("blend").as_num()),
+            };
+            if (spotObj.contains("limit") && spotObj.at("limit").is_num()) {
+                spot.limit = spotObj.at("limit").as_num();
+            }
+
+            light.lightInfo = spot;
+        }
+        else {
+            PANIC("Scene loading error: light doesn't contain a valid light type");
+        }
+
+        lights.push_back(std::move(light));
     }
 
     // Set the default camera
