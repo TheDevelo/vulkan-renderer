@@ -500,6 +500,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             .name = envObj.at("name").as_str(),
             .info = EnvironmentInfo {
                 .ggxMipLevels = 1,
+                .empty = false,
             },
         };
 
@@ -529,6 +530,31 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             ggxMipmapPath.replace_extension(string_format(".ggx%u.png", mipLevel));
             loadMipmapIntoCubemap(renderInstance, *env.ggx, ggxMipmapPath.string(), mipLevel);
         }
+
+        environments.push_back(std::move(env));
+    }
+
+    // Create a blank environment if there are none specified
+    if (environments.size() == 0) {
+        Environment env {
+            .name = "EmptyEnv",
+            .ancestors = { 0 },
+            .info = EnvironmentInfo {
+                .empty = true
+            },
+        };
+
+        env.radiance = std::make_unique<CombinedCubemap>(renderInstance, 1, 1, 1, VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+        VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
+        transitionImageLayout(commandBuffer, env.radiance->image, VK_FORMAT_R32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VkImageSubresourceRange {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 6,
+            });
+        endSingleUseCBuffer(*renderInstance, commandBuffer);
 
         environments.push_back(std::move(env));
     }

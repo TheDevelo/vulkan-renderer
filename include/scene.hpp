@@ -27,6 +27,7 @@ struct alignas(256) CameraInfo {
 struct alignas(256) EnvironmentInfo {
     Mat4<float> transform;
     uint32_t ggxMipLevels;
+    alignas(4) bool empty; // Used if we have a blank cubemap
 };
 
 // Data required for rendering, but not managed by the scene

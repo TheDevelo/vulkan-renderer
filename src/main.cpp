@@ -438,6 +438,7 @@ private:
                 .offset = 0,
                 .range = sizeof(EnvironmentInfo),
             });
+            // Set to radiance initially for empty cubemaps, and set to proper value below if non-empty
             VkDescriptorImageInfo& radianceInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
                 .sampler = repeatingSampler,
                 .imageView = scene.environments[i].radiance->imageView,
@@ -445,14 +446,18 @@ private:
             });
             VkDescriptorImageInfo& lambertianInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
                 .sampler = repeatingSampler,
-                .imageView = scene.environments[i].lambertian->imageView,
+                .imageView = scene.environments[i].radiance->imageView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             });
             VkDescriptorImageInfo& ggxInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
                 .sampler = repeatingSampler,
-                .imageView = scene.environments[i].ggx->imageView,
+                .imageView = scene.environments[i].radiance->imageView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             });
+            if (!scene.environments[i].info.empty) {
+                lambertianInfo.imageView = scene.environments[i].lambertian->imageView;
+                ggxInfo.imageView = scene.environments[i].ggx->imageView;
+            }
 
             descriptorWrites.emplace_back(VkWriteDescriptorSet {
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
