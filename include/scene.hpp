@@ -30,6 +30,27 @@ struct alignas(256) EnvironmentInfo {
     alignas(4) bool empty; // Used if we have a blank cubemap
 };
 
+struct alignas(256) LightInfo {
+    uint32_t type; // 0 = Sun, 1 = Sphere, 2 = Spot
+    Mat4<float> transform;
+    Vec3<float> tint;
+
+    // Sun/Sphere/Spot Info
+    float power; // Strength for Sun
+
+    // Sun Info
+    float angle;
+
+    // Sphere/Spot Info
+    float radius;
+    float limit;
+    alignas(4) bool useLimit;
+
+    // Spot Info
+    float fov;
+    float blend;
+};
+
 // Data required for rendering, but not managed by the scene
 struct SceneRenderInfo {
     VkCommandBuffer commandBuffer;
@@ -161,30 +182,12 @@ struct Environment {
     VkDescriptorSet descriptorSet;
 };
 
-struct LightSun {
-    float strength;
-    float angle;
-};
-
-struct LightSphere {
-    float radius;
-    float power;
-    std::optional<float> limit;
-};
-
-struct LightSpot {
-    float radius;
-    float power;
-    std::optional<float> limit;
-    float fov;
-    float blend;
-};
-
+// Unlike other node-instanced attachments, we have a Light copy for each instance
 struct Light {
     std::string name;
+    std::vector<uint32_t> ancestors;
 
-    Vec3<float> tint;
-    std::variant<LightSun, LightSphere, LightSpot> lightInfo;
+    LightInfo info;
     uint32_t shadowMapSize;
 };
 
@@ -260,7 +263,7 @@ private:
     void buildCombinedVertexBuffer(std::shared_ptr<RenderInstance>& renderInstance, std::vector<std::vector<Vertex>> const& meshVertices);
     void buildMaterialConstantsBuffer(std::shared_ptr<RenderInstance>& renderInstance);
     bool computeNodeBBox(uint32_t nodeId, std::set<uint32_t>& dynamicNodes, std::set<uint32_t>& visitedNodes);
-    void calculateAncestors();
+    void calculateAncestors(std::vector<Light> const& lightTemplates);
 
     bool bboxInViewFrustum(Mat4<float> const& worldTransform, AxisAlignedBoundingBox const& bbox);
 

@@ -559,19 +559,24 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         environments.push_back(std::move(env));
     }
 
-    // Iterate through all the lights and construct their Light representation
+    // Iterate through all the lights and construct a Light representation.
+    // We will then duplicate these representations into lights per-instance
+    std::vector<Light> lightTemplates;
     for (auto idPair : lightIdMap) {
         uint32_t s72Id = idPair.first;
         json::object const& lightObj = sceneArr[s72Id].as_obj();
 
         Light light {
             .name = lightObj.at("name").as_str(),
-            .tint = Vec3<float>(1.0),
+            .info = LightInfo {
+                .tint = Vec3<float>(1.0),
+                .useLimit = false,
+            },
             .shadowMapSize = 0,
         };
 
         if (lightObj.contains("tint") && lightObj.at("tint").is_vec3f()) {
-            light.tint = lightObj.at("tint").as_vec3f();
+            light.info.tint = lightObj.at("tint").as_vec3f();
         }
 
         if (lightObj.contains("shadow") && lightObj.at("shadow").is_num()) {
@@ -583,25 +588,23 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             PANIC_JSON_MISSING(sunObj, "strength", num, "Scene loading error: sun light missing strength");
             PANIC_JSON_MISSING(sunObj, "angle", num, "Scene loading error: sun light missing angle");
 
-            light.lightInfo = LightSun {
-                .strength = static_cast<float>(sunObj.at("strength").as_num()),
-                .angle = static_cast<float>(sunObj.at("angle").as_num()),
-            };
+            light.info.type = 0;
+            light.info.power = sunObj.at("strength").as_num();
+            light.info.angle = sunObj.at("angle").as_num();
         }
         else if (lightObj.contains("sphere") && lightObj.at("sphere").is_obj()) {
             json::object const& sphereObj = lightObj.at("sphere").as_obj();
             PANIC_JSON_MISSING(sphereObj, "radius", num, "Scene loading error: sphere light missing radius");
             PANIC_JSON_MISSING(sphereObj, "power", num, "Scene loading error: sphere light missing power");
 
-            LightSphere sphere {
-                .radius = static_cast<float>(sphereObj.at("radius").as_num()),
-                .power = static_cast<float>(sphereObj.at("power").as_num()),
-            };
-            if (sphereObj.contains("limit") && sphereObj.at("limit").is_num()) {
-                sphere.limit = sphereObj.at("limit").as_num();
-            }
+            light.info.type = 1;
+            light.info.power = sphereObj.at("power").as_num();
+            light.info.radius = sphereObj.at("radius").as_num();
 
-            light.lightInfo = sphere;
+            if (sphereObj.contains("limit") && sphereObj.at("limit").is_num()) {
+                light.info.limit = sphereObj.at("limit").as_num();
+                light.info.useLimit = true;
+            }
         }
         else if (lightObj.contains("spot") && lightObj.at("spot").is_obj()) {
             json::object const& spotObj = lightObj.at("spot").as_obj();
@@ -610,23 +613,22 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             PANIC_JSON_MISSING(spotObj, "fov", num, "Scene loading error: spot light missing fov");
             PANIC_JSON_MISSING(spotObj, "blend", num, "Scene loading error: spot light missing blend");
 
-            LightSpot spot {
-                .radius = static_cast<float>(spotObj.at("radius").as_num()),
-                .power = static_cast<float>(spotObj.at("power").as_num()),
-                .fov = static_cast<float>(spotObj.at("fov").as_num()),
-                .blend = static_cast<float>(spotObj.at("blend").as_num()),
-            };
-            if (spotObj.contains("limit") && spotObj.at("limit").is_num()) {
-                spot.limit = spotObj.at("limit").as_num();
-            }
+            light.info.type = 2;
+            light.info.radius = spotObj.at("radius").as_num();
+            light.info.power = spotObj.at("power").as_num();
+            light.info.fov = spotObj.at("fov").as_num();
+            light.info.blend = spotObj.at("blend").as_num();
 
-            light.lightInfo = spot;
+            if (spotObj.contains("limit") && spotObj.at("limit").is_num()) {
+                light.info.limit = spotObj.at("limit").as_num();
+                light.info.useLimit = true;
+            }
         }
         else {
             PANIC("Scene loading error: light doesn't contain a valid light type");
         }
 
-        lights.push_back(std::move(light));
+        lightTemplates.push_back(light);
     }
 
     // Set the default camera
@@ -654,7 +656,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
         computeNodeBBox(rootNode, dynamicNodes, visitedNodes);
     }
 
-    calculateAncestors();
+    calculateAncestors(lightTemplates);
     cullingMode = options::getDefaultCullingMode();
     cameraInfo.exposure = 1.0f;
 }
@@ -731,7 +733,7 @@ void Scene::switchCameraByName(std::string name) {
 }
 
 // Helper to calculate the ancestor path to each Camera/Environment for easy transform calculation
-void Scene::calculateAncestors() {
+void Scene::calculateAncestors(std::vector<Light> const& lightTemplates) {
     std::vector<uint32_t> ancestors;
     auto traverse = [&](const auto& recurse, uint32_t nodeId) -> void {
         ancestors.push_back(nodeId);
@@ -761,6 +763,13 @@ void Scene::calculateAncestors() {
             if (environment.ancestors.size() == 0) {
                 environment.ancestors = ancestors;
             }
+        }
+        if (node.lightIndex.has_value()) {
+            // Found a light, so copy the corresponding template from lightTemplates and make a copy into lights
+            Light lightInstance = lightTemplates[node.lightIndex.value()];
+            lightInstance.ancestors = ancestors;
+
+            lights.push_back(lightInstance);
         }
 
         for (uint32_t childId : node.childIndices) {
