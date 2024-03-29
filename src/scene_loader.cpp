@@ -660,16 +660,13 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     cullingMode = options::getDefaultCullingMode();
     cameraInfo.exposure = 1.0f;
 
-    // Add a fake light of power 0 if we don't have any lights available
+    // Add a disabled light if we don't have any lights available (since the SSBO needs something to be allocated)
     if (lights.size() == 0) {
         lights.push_back(Light {
-            .name = "FakeLight",
+            .name = "Disabled Light",
             .ancestors = { 0 },
             .info = LightInfo {
-                .type = 0,
-                .tint = Vec3<float>(1.0),
-                .power = 0,
-                .angle = 0,
+                .type = std::numeric_limits<uint32_t>::max(),
             },
             .shadowMapSize = 0,
         });

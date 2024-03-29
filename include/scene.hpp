@@ -31,9 +31,9 @@ struct alignas(256) EnvironmentInfo {
 };
 
 struct alignas(256) LightInfo {
-    uint32_t type; // 0 = Sun, 1 = Sphere, 2 = Spot
     Mat4<float> transform;
     Vec3<float> tint;
+    uint32_t type; // 0 = Sun, 1 = Sphere, 2 = Spot, uint32_t MAX = Disabled
 
     // Sun/Sphere/Spot Info
     float power; // Strength for Sun

@@ -21,7 +21,7 @@ layout(set = 2, binding = 0) uniform EnvironmentInfoUBO {
 layout(set = 2, binding = 2) uniform samplerCube lambertianCubemap;
 layout(set = 2, binding = 3) uniform samplerCube ggxCubemap;
 
-layout(set = 3, binding = 0) buffer LightInfoSSBO {
+layout(std430, set = 3, binding = 0) buffer LightInfoSSBO {
     LightInfo lights[];
 };
 

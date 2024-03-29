@@ -1,3 +1,5 @@
+#define PI 3.14159265358979323846264338327950288
+
 struct CameraInfo {
     mat4 view;
     mat4 proj;
@@ -23,9 +25,9 @@ struct EnvironmentInfo {
 };
 
 struct LightInfo {
-    uint type; // 0 = Sun, 1 = Sphere, 2 = Spot
     mat4 transform;
     vec3 tint;
+    uint type; // 0 = Sun, 1 = Sphere, 2 = Spot, UINT_MAX = Disabled
 
     // Sun/Sphere/Spot Info
     float power; // Strength for Sun
@@ -41,6 +43,9 @@ struct LightInfo {
     // Spot Info
     float fov;
     float blend;
+
+    // Padding to align to 256 bytes
+    float padding[36];
 };
 
 struct VertexOutput {
@@ -51,6 +56,7 @@ struct VertexOutput {
     vec2 uv;
     vec3 viewDir;
     vec3 tangentViewDir;
+    vec4 worldPos;
 };
 
 // Tonemapping operator is (an approximation of) the ACES Filmic curve
