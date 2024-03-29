@@ -48,6 +48,7 @@ MaterialPipelines::~MaterialPipelines() {
     vkDestroyDescriptorSetLayout(renderInstance->device, simpleEnvMirrorLayout, nullptr);
     vkDestroyDescriptorSetLayout(renderInstance->device, lambertianLayout, nullptr);
     vkDestroyDescriptorSetLayout(renderInstance->device, pbrLayout, nullptr);
+    vkDestroyDescriptorSetLayout(renderInstance->device, lightLayout, nullptr);
 }
 
 void MaterialPipelines::createDescriptorSetLayouts() {
@@ -237,6 +238,23 @@ void MaterialPipelines::createDescriptorSetLayouts() {
         .pBindings = pbrBindings.data(),
     };
     VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &pbrLayoutInfo, nullptr, &pbrLayout), "failed to create descriptor set layout!");
+
+    // Light Storage Buffer Descriptor Layout
+    std::array<VkDescriptorSetLayoutBinding, 1> lightBindings = {{
+        {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+        }
+    }};
+
+    VkDescriptorSetLayoutCreateInfo lightLayoutInfo {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = static_cast<uint32_t>(lightBindings.size()),
+        .pBindings = lightBindings.data(),
+    };
+    VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &lightLayoutInfo, nullptr, &lightLayout), "failed to create descriptor set layout!");
 }
 
 // Helper to create a shader module from a SPIRV array
@@ -362,7 +380,7 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
     };
     VK_ERR(vkCreatePipelineLayout(renderInstance->device, &envMirrorPipelineLayoutInfo, nullptr, &envMirrorPipelineLayout), "failed to create pipeline layout!");
 
-    std::array<VkDescriptorSetLayout, 3> lambertianLayouts = { cameraInfoLayout, lambertianLayout, environmentLayout };
+    std::array<VkDescriptorSetLayout, 4> lambertianLayouts = { cameraInfoLayout, lambertianLayout, environmentLayout, lightLayout };
     VkPipelineLayoutCreateInfo lambertianPipelineLayoutInfo {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = lambertianLayouts.size(),
@@ -372,7 +390,7 @@ void MaterialPipelines::createPipelines(VkRenderPass renderPass) {
     };
     VK_ERR(vkCreatePipelineLayout(renderInstance->device, &lambertianPipelineLayoutInfo, nullptr, &lambertianPipelineLayout), "failed to create pipeline layout!");
 
-    std::array<VkDescriptorSetLayout, 3> pbrLayouts = { cameraInfoLayout, pbrLayout, environmentLayout };
+    std::array<VkDescriptorSetLayout, 4> pbrLayouts = { cameraInfoLayout, pbrLayout, environmentLayout, lightLayout };
     VkPipelineLayoutCreateInfo pbrPipelineLayoutInfo {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = pbrLayouts.size(),

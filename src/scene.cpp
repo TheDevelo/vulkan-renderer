@@ -105,6 +105,9 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
         }
         vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 2, 1, &environments[0].descriptorSet, 1, &sceneRenderInfo.environmentDescriptorOffset);
     }
+    if (material.type == MaterialType::LAMBERTIAN || material.type == MaterialType::PBR) {
+        vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 3, 1, &lightDescriptorSet, 1, &sceneRenderInfo.lightDescriptorOffset);
+    }
 
     if (mesh.vertexBufferIndex >= buffers.size()) {
         PANIC(string_format("mesh %s includes vertex buffer %u out of range!", mesh.name.c_str(), mesh.vertexBufferIndex));
@@ -208,13 +211,33 @@ void Scene::updateEnvironmentTransforms() {
         Mat4<float> worldToEnvMatrix = linear::M4F_IDENTITY;
         for (uint32_t nodeId : environment.ancestors) {
             if (nodeId >= nodes.size()) {
-                PANIC(string_format("node %u out of range is an ancestor to a camera!", nodeId));
+                PANIC(string_format("node %u out of range is an ancestor to an environment!", nodeId));
             }
             Node& node = nodes[nodeId];
 
             worldToEnvMatrix = linear::mmul(worldToEnvMatrix, node.invTransform);
         }
         environment.info.transform = worldToEnvMatrix;
+    }
+}
+
+void Scene::updateLightTransforms() {
+    for (Light& light : lights) {
+        if (light.ancestors.size() == 0) {
+            PANIC("light is (somehow) not in the scene tree!");
+        }
+
+        // Calculate the transform matrix from the environment's ancestors
+        Mat4<float> worldToLightMatrix = linear::M4F_IDENTITY;
+        for (uint32_t nodeId : light.ancestors) {
+            if (nodeId >= nodes.size()) {
+                PANIC(string_format("node %u out of range is an ancestor to a light!", nodeId));
+            }
+            Node& node = nodes[nodeId];
+
+            worldToLightMatrix = linear::mmul(worldToLightMatrix, node.invTransform);
+        }
+        light.info.transform = worldToLightMatrix;
     }
 }
 

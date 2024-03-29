@@ -17,6 +17,10 @@ layout(set = 2, binding = 0) uniform EnvironmentInfoUBO {
 };
 layout(set = 2, binding = 2) uniform samplerCube lambertianCubemap;
 
+layout(set = 3, binding = 0) buffer LightInfoSSBO {
+    LightInfo lights[];
+};
+
 layout(location = 0) in VertexOutput frag;
 
 layout(location = 0) out vec4 outColor;

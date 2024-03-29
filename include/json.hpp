@@ -57,7 +57,7 @@ namespace json {
 
         // Composite types - Helpers for easier JSON handling
         inline bool is_vec3f() const {
-            if (is_arr() || as_arr().size() != 3) {
+            if (!is_arr() || as_arr().size() != 3) {
                 return false;
             }
             array const& arrVal = as_arr();
@@ -72,13 +72,13 @@ namespace json {
             array const& arrVal = as_arr();
             Vec3<float> retVal;
             for (int i = 0; i < 3; i++) {
-                retVal[i] = arrVal[i].is_num();
+                retVal[i] = arrVal[i].as_num();
             }
             return retVal;
         }
 
         inline bool is_vec4f() const {
-            if (is_arr() || as_arr().size() != 4) {
+            if (!is_arr() || as_arr().size() != 4) {
                 return false;
             }
             array const& arrVal = as_arr();
@@ -93,7 +93,7 @@ namespace json {
             array const& arrVal = as_arr();
             Vec4<float> retVal;
             for (int i = 0; i < 4; i++) {
-                retVal[i] = arrVal[i].is_num();
+                retVal[i] = arrVal[i].as_num();
             }
             return retVal;
         }

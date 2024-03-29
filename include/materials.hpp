@@ -28,6 +28,7 @@ public:
 
     // Descriptor set layouts
     VkDescriptorSetLayout cameraInfoLayout;
+    VkDescriptorSetLayout lightLayout;
     VkDescriptorSetLayout environmentLayout;
     VkDescriptorSetLayout simpleEnvMirrorLayout;
     VkDescriptorSetLayout lambertianLayout;

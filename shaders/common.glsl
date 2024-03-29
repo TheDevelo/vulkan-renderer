@@ -19,6 +19,28 @@ struct MaterialConstants {
 struct EnvironmentInfo {
     mat4 transform;
     uint ggxMipLevels;
+    bool isEmpty;
+};
+
+struct LightInfo {
+    uint type; // 0 = Sun, 1 = Sphere, 2 = Spot
+    mat4 transform;
+    vec3 tint;
+
+    // Sun/Sphere/Spot Info
+    float power; // Strength for Sun
+
+    // Sun Info
+    float angle;
+
+    // Sphere/Spot Info
+    float radius;
+    float limit;
+    bool useLimit;
+
+    // Spot Info
+    float fov;
+    float blend;
 };
 
 struct VertexOutput {

@@ -61,6 +61,8 @@ private:
     std::vector<CombinedBuffer> environmentUniformBuffers;
     std::vector<void*> environmentUniformMaps;
     std::unique_ptr<CombinedImage> pbrBRDFImage;
+    std::unique_ptr<CombinedBuffer> lightStorageBuffer;
+    void* lightStorageMap;
 
     VkDescriptorPool descriptorPool;
     std::unique_ptr<CombinedImage> defaultDescriptorImage;
@@ -257,9 +259,10 @@ private:
         VK_ERR(vkCreateSampler(renderInstance->device, &clampedSamplerInfo, nullptr, &clampedSampler), "failed to create texture sampler!");
     }
 
+    // Also creates storage buffers too :)
     void createUniformBuffers() {
-        VkDeviceSize cameraBufferSize = sizeof(CameraInfo) * MAX_FRAMES_IN_FLIGHT;
         // Create camera uniform buffers
+        VkDeviceSize cameraBufferSize = sizeof(CameraInfo) * MAX_FRAMES_IN_FLIGHT;
         cameraUniformBuffer = std::make_unique<CombinedBuffer>(renderInstance, cameraBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         vkMapMemory(renderInstance->device, cameraUniformBuffer->bufferMemory, 0, cameraBufferSize, 0, &cameraUniformMap);
 
@@ -289,6 +292,11 @@ private:
         copyBufferToImage(commandBuffer, stagingBuffer.buffer, pbrBRDFImage->image, 256, 256);
         transitionImageLayout(commandBuffer, pbrBRDFImage->image, VK_FORMAT_R32G32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         endSingleUseCBuffer(*renderInstance, commandBuffer);
+
+        // Create the light storage buffer
+        VkDeviceSize lightSSBOSize = sizeof(LightInfo) * scene.lights.size() * MAX_FRAMES_IN_FLIGHT;
+        lightStorageBuffer = std::make_unique<CombinedBuffer>(renderInstance, lightSSBOSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        vkMapMemory(renderInstance->device, lightStorageBuffer->bufferMemory, 0, lightSSBOSize, 0, &lightStorageMap);
     }
 
     void createDescriptorSets() {
@@ -304,14 +312,16 @@ private:
         uint32_t simpleEnvMirrorDescs = scene.materialCounts.simple + scene.materialCounts.environment + scene.materialCounts.mirror;
         uint32_t lambertianDescs = scene.materialCounts.lambertian;
         uint32_t pbrDescs = scene.materialCounts.pbr;
+        uint32_t lightDescs = 1;
 
         uint32_t uniformDescs = simpleEnvMirrorDescs + lambertianDescs + pbrDescs;
         uint32_t dynamicUniformDescs = cameraDescs + environmentDescs;
+        uint32_t dynamicStorageDescs = lightDescs;
         uint32_t combinedImageSamplerDescs = cameraDescs + 3 * environmentDescs + 2 * simpleEnvMirrorDescs + 3 * lambertianDescs + 5 * pbrDescs;
 
         // Create the descriptor pool
         // NOTE: Each type needs at least 1 descriptor to allocate, or else we get an error
-        std::array<VkDescriptorPoolSize, 3> poolSizes {{
+        std::array<VkDescriptorPoolSize, 4> poolSizes {{
             {
                 .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                 .descriptorCount = uniformDescs,
@@ -321,6 +331,10 @@ private:
                 .descriptorCount = dynamicUniformDescs,
             },
             {
+                .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
+                .descriptorCount = dynamicStorageDescs,
+            },
+            {
                 .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .descriptorCount = combinedImageSamplerDescs,
             }
@@ -328,7 +342,7 @@ private:
 
         VkDescriptorPoolCreateInfo poolInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets = cameraDescs + environmentDescs + simpleEnvMirrorDescs + lambertianDescs + pbrDescs,
+            .maxSets = cameraDescs + environmentDescs + simpleEnvMirrorDescs + lambertianDescs + pbrDescs + lightDescs,
             .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
             .pPoolSizes = poolSizes.data(),
         };
@@ -381,7 +395,7 @@ private:
         std::vector<VkDescriptorSet> lambertianDescriptorSets(lambertianDescs);
         VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &lambertianAllocInfo, lambertianDescriptorSets.data()), "failed to allocate descriptor sets!");
 
-        // Allocate the Lambertian material descriptor sets
+        // Allocate the PBR material descriptor sets
         std::vector<VkDescriptorSetLayout> pbrLayouts(pbrDescs, materialPipelines->pbrLayout);
         VkDescriptorSetAllocateInfo pbrAllocInfo {
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -393,12 +407,22 @@ private:
         std::vector<VkDescriptorSet> pbrDescriptorSets(pbrDescs);
         VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &pbrAllocInfo, pbrDescriptorSets.data()), "failed to allocate descriptor sets!");
 
+        // Allocate the light descriptor set
+        VkDescriptorSetAllocateInfo lightAllocInfo {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = descriptorPool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &materialPipelines->lightLayout,
+        };
+
+        VK_ERR(vkAllocateDescriptorSets(renderInstance->device, &lightAllocInfo, &scene.lightDescriptorSet), "failed to allocate descriptor sets!");
+
         // Point our descriptor sets at the underlying resources
         std::vector<VkWriteDescriptorSet> descriptorWrites;
         std::vector<VkDescriptorBufferInfo> bufferWrites;
         std::vector<VkDescriptorImageInfo> imageWrites;
         // Need to reserve enough space for bufferWrites and imageWrites so that they don't move around in memory
-        bufferWrites.reserve(uniformDescs + dynamicUniformDescs);
+        bufferWrites.reserve(uniformDescs + dynamicUniformDescs + dynamicStorageDescs);
         imageWrites.reserve(combinedImageSamplerDescs);
 
         // Camera descriptors
@@ -634,6 +658,24 @@ private:
                 });
             }
         }
+
+        // Light descriptor set writes
+        VkDescriptorBufferInfo& lightBufferInfo = bufferWrites.emplace_back(VkDescriptorBufferInfo {
+            .buffer = lightStorageBuffer->buffer,
+            .offset = 0,
+            .range = sizeof(LightInfo) * scene.lights.size(),
+        });
+        descriptorWrites.emplace_back(VkWriteDescriptorSet {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = scene.lightDescriptorSet,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
+            .pBufferInfo = &lightBufferInfo,
+        });
+
+        // Commit all the writes
         vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     }
 
@@ -795,11 +837,16 @@ private:
         // Update our uniform buffers
         scene.updateCameraTransform(*renderInstance);
         scene.updateEnvironmentTransforms();
+        scene.updateLightTransforms();
         uint8_t* dstCameraMap = reinterpret_cast<uint8_t*>(cameraUniformMap) + currentFrame * sizeof(CameraInfo);
         memcpy(dstCameraMap, &scene.cameraInfo, sizeof(CameraInfo));
         for (size_t i = 0; i < scene.environments.size(); i++) {
             uint8_t* dstEnvMap = reinterpret_cast<uint8_t*>(environmentUniformMaps[i]) + currentFrame * sizeof(EnvironmentInfo);
             memcpy(dstEnvMap, &scene.environments[i].info, sizeof(EnvironmentInfo));
+        }
+        for (size_t i = 0; i < scene.lights.size(); i++) {
+            uint8_t* dstLightMap = reinterpret_cast<uint8_t*>(lightStorageMap) + (i + currentFrame * scene.lights.size()) * sizeof(LightInfo);
+            memcpy(dstLightMap, &scene.lights[i].info, sizeof(LightInfo));
         }
 
         // Record our render commands
@@ -916,6 +963,7 @@ private:
             .pipelines = *materialPipelines,
             .cameraDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(CameraInfo)),
             .environmentDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(EnvironmentInfo)),
+            .lightDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(LightInfo) * scene.lights.size()),
         };
         scene.renderScene(sceneRenderInfo);
 

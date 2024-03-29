@@ -58,6 +58,7 @@ struct SceneRenderInfo {
     // Descriptor offsets are used for switching between different frame copies of descriptors
     uint32_t cameraDescriptorOffset;
     uint32_t environmentDescriptorOffset;
+    uint32_t lightDescriptorOffset;
 };
 
 // Container for a local-space axis-aligned bounding box. Represented by the corners with minimal XYZ and maximal XYZ
@@ -229,6 +230,7 @@ public:
 
     void updateCameraTransform(RenderInstance const& renderInstance); // Need render instance for the user camera aspect ratio calculation
     void updateEnvironmentTransforms();
+    void updateLightTransforms();
 
     void moveUserCamera(UserCameraMoveEvent moveAmount, float dt);
     void rotateUserCamera(UserCameraRotateEvent rotateAmount);
@@ -242,10 +244,12 @@ public:
     std::vector<Camera> cameras;
     VkDescriptorSet cameraDescriptorSet;
 
-    // Material and environment info used to create the descriptor pool, allocate descriptors, and update them
+    // Material/Environment/Light info used to create the descriptor pool, allocate descriptors, and update them
     MaterialCounts materialCounts;
     std::vector<Material> materials;
     std::vector<Environment> environments;
+    std::vector<Light> lights;
+    VkDescriptorSet lightDescriptorSet;
 
     float minAnimTime;
     float maxAnimTime;
@@ -271,7 +275,6 @@ private:
     std::vector<Node> nodes;
     std::vector<Mesh> meshes;
     std::vector<Driver> drivers;
-    std::vector<Light> lights;
     std::vector<CombinedBuffer> buffers;
 
     // We store a separate struct for the culling camera, which simplifies culling logic & makes debug mode possible
