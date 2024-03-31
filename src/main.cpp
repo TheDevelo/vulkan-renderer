@@ -46,10 +46,10 @@ private:
     std::shared_ptr<RenderInstance> renderInstance;
     Scene scene;
 
-    VkRenderPass renderPass;
     std::unique_ptr<MaterialPipelines> materialPipelines;
 
     std::vector<VkFramebuffer> renderTargetFramebuffers;
+    std::vector<VkFramebuffer> shadowMapFramebuffers;
 
     VkSampler repeatingSampler;
     VkSampler clampedSampler;
@@ -80,8 +80,7 @@ private:
     uint32_t currentFrame = 0;
 
     void initVulkan() {
-        createRenderPass();
-        materialPipelines = std::make_unique<MaterialPipelines>(renderInstance, renderPass);
+        materialPipelines = std::make_unique<MaterialPipelines>(renderInstance);
 
         createCommandBuffers();
 
@@ -104,76 +103,8 @@ private:
         renderInstance = std::shared_ptr<RenderInstance>(new RenderInstance(options));
     }
 
-    // Creates the render pass for our renderer
-    void createRenderPass() {
-        // The attachment describes our screen's framebuffer, and how we want the render pass to modify it.
-        VkAttachmentDescription colorAttachment {
-            .format = renderInstance->renderImageFormat,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        };
-        VkAttachmentReference colorAttachmentRef {
-            .attachment = 0,
-            .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        };
-        if (options::isHeadless()) {
-            // If we're headless, then using PRESENT_SRC_KHR makes no sense. So just use COLOR_ATTACHMENT_OPTIMAL
-            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        }
-
-        // This attachment describes the depth buffer
-        VkAttachmentDescription depthAttachment {
-            .format = VK_FORMAT_D32_SFLOAT,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        };
-        VkAttachmentReference depthAttachmentRef {
-            .attachment = 1,
-            .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        };
-
-        // Define the subpass for rendering our triangle
-        VkSubpassDescription subpassDesc {
-            .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-            .colorAttachmentCount = 1,
-            .pColorAttachments = &colorAttachmentRef,
-            .pDepthStencilAttachment = &depthAttachmentRef
-        };
-        VkSubpassDependency dependency {
-            .srcSubpass = VK_SUBPASS_EXTERNAL,
-            .dstSubpass = 0,
-            .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-            .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-            .srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        };
-
-        // Create the whole render pass
-        std::array<VkAttachmentDescription, 2> attachments = { colorAttachment, depthAttachment };
-        VkRenderPassCreateInfo renderPassInfo {
-            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-            .attachmentCount = static_cast<uint32_t>(attachments.size()),
-            .pAttachments = attachments.data(),
-            .subpassCount = 1,
-            .pSubpasses = &subpassDesc,
-            .dependencyCount = 1,
-            .pDependencies = &dependency,
-        };
-
-        VK_ERR(vkCreateRenderPass(renderInstance->device, &renderPassInfo, nullptr, &renderPass), "failed to create render pass!");
-    }
-
     void createFramebuffers() {
+        // Create render target framebuffers
         renderTargetFramebuffers.resize(renderInstance->renderImageViews.size());
         for (size_t i = 0; i < renderInstance->renderImageViews.size(); i++) {
             std::array<VkImageView, 2> attachments = {
@@ -183,7 +114,7 @@ private:
 
             VkFramebufferCreateInfo framebufferInfo {
                 .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                .renderPass = renderPass,
+                .renderPass = materialPipelines->solidRenderPass,
                 .attachmentCount = static_cast<uint32_t>(attachments.size()),
                 .pAttachments = attachments.data(),
                 .width = renderInstance->renderImageExtent.width,
@@ -192,6 +123,32 @@ private:
             };
 
             VK_ERR(vkCreateFramebuffer(renderInstance->device, &framebufferInfo, nullptr, &renderTargetFramebuffers[i]), "failed to create framebuffer!");
+        }
+
+        // Create shadow map framebuffers
+        shadowMapFramebuffers.resize(scene.shadowMaps.size());
+        // Need to loop over the lights instead of the shadow map targets since we also need the size of the shadow maps
+        for (size_t lightI = 0; lightI < scene.lights.size(); lightI++) {
+            if (!scene.lights[lightI].shadowMapIndex.has_value()) {
+                continue;
+            }
+            size_t i = scene.lights[lightI].shadowMapIndex.value();
+
+            std::array<VkImageView, 1> attachments = {
+                scene.shadowMaps[i].imageView,
+            };
+
+            VkFramebufferCreateInfo framebufferInfo {
+                .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                .renderPass = materialPipelines->shadowRenderPass,
+                .attachmentCount = static_cast<uint32_t>(attachments.size()),
+                .pAttachments = attachments.data(),
+                .width = scene.lights[lightI].shadowMapSize,
+                .height = scene.lights[lightI].shadowMapSize,
+                .layers = 1,
+            };
+
+            VK_ERR(vkCreateFramebuffer(renderInstance->device, &framebufferInfo, nullptr, &shadowMapFramebuffers[i]), "failed to create framebuffer!");
         }
     }
 
@@ -907,13 +864,75 @@ private:
 
         VK_ERR(vkBeginCommandBuffer(commandBuffer, &beginInfo), "failed to begin recording command buffer!");
 
-        // Start the render pass
+        // Start by rendering the shadow maps
+        for (uint32_t i = 0; i < scene.lights.size(); i++) {
+            if (!scene.lights[i].shadowMapIndex.has_value()) {
+                continue;
+            }
+            size_t shadowMapIndex = scene.lights[i].shadowMapIndex.value();
+            VkExtent2D shadowMapExtent {
+                .width = scene.lights[i].shadowMapSize,
+                .height = scene.lights[i].shadowMapSize,
+            };
+
+            // Start the render pass
+            VkClearValue clearColor {
+                .depthStencil = { 1.0f, 0 },
+            };
+            VkRenderPassBeginInfo renderPassInfo {
+                .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                .renderPass = materialPipelines->shadowRenderPass,
+                .framebuffer = shadowMapFramebuffers[shadowMapIndex],
+                .renderArea = VkRect2D {
+                    .offset = {0, 0},
+                    .extent = shadowMapExtent,
+                },
+                .clearValueCount = 1,
+                .pClearValues = &clearColor,
+            };
+            vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+            // Set the camera viewport and scissor
+            VkViewport viewport {
+                .x = 0.0f,
+                .y = 0.0f,
+                .width = (float) shadowMapExtent.width,
+                .height = (float) shadowMapExtent.height,
+                .minDepth = 0.0f,
+                .maxDepth = 1.0f,
+            };
+            vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+            VkRect2D scissor {
+                .offset = {0, 0},
+                .extent = shadowMapExtent,
+            };
+            vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+            // Draw the scene
+            SceneRenderInfo sceneRenderInfo {
+                .commandBuffer = commandBuffer,
+                .pipelines = *materialPipelines,
+                .type = SceneRenderType::SHADOW,
+
+                .cameraDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(CameraInfo)),
+                .environmentDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(EnvironmentInfo)),
+                .lightDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(LightInfo) * scene.lights.size()),
+
+                .lightIndex = i,
+            };
+            scene.renderScene(sceneRenderInfo);
+
+            // End our render pass and command buffer
+            vkCmdEndRenderPass(commandBuffer);
+        }
+
+        // Start the solid render pass
         std::array<VkClearValue, 2> clearColors;
         clearColors[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
         clearColors[1].depthStencil = {1.0f, 0};
         VkRenderPassBeginInfo renderPassInfo {
             .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-            .renderPass = renderPass,
+            .renderPass = materialPipelines->solidRenderPass,
             .framebuffer = renderTargetFramebuffers[imageIndex],
             .renderArea = VkRect2D {
                 .offset = {0, 0},
@@ -961,6 +980,8 @@ private:
         SceneRenderInfo sceneRenderInfo {
             .commandBuffer = commandBuffer,
             .pipelines = *materialPipelines,
+            .type = SceneRenderType::SOLID,
+
             .cameraDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(CameraInfo)),
             .environmentDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(EnvironmentInfo)),
             .lightDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(LightInfo) * scene.lights.size()),
@@ -997,7 +1018,9 @@ public:
             vkDestroyFence(renderInstance->device, inFlightFences[i], nullptr);
         }
 
-        vkDestroyRenderPass(renderInstance->device, renderPass, nullptr);
+        for (VkFramebuffer framebuffer : shadowMapFramebuffers) {
+            vkDestroyFramebuffer(renderInstance->device, framebuffer, nullptr);
+        }
     }
 
 private:

@@ -26,6 +26,7 @@ struct EnvironmentInfo {
 
 struct LightInfo {
     mat4 transform;
+    mat4 projection;
     vec3 tint;
     uint type; // 0 = Sun, 1 = Sphere, 2 = Spot, UINT_MAX = Disabled
 
@@ -45,7 +46,7 @@ struct LightInfo {
     float blend;
 
     // Padding to align to 256 bytes
-    float padding[36];
+    float padding[20];
 };
 
 struct VertexOutput {
@@ -115,5 +116,53 @@ vec3 getNormal(VertexOutput frag, MaterialConstants materialConstants, sampler2D
     }
     else {
         return normalize(frag.normal);
+    }
+}
+
+vec4 diffuseLightContribution(LightInfo light, vec3 normal, vec4 position) {
+    vec3 lightspaceNormal = normalize(mat3(transpose(inverse(light.transform))) * normal);
+    vec3 lightspacePosition = (light.transform * position).xyz;
+
+    if (light.type == 0) {
+        // Sun Light
+        // The light direction is (0, 0, -1)
+        float cosWeight = max(0.0, dot(lightspaceNormal, vec3(0.0, 0.0, 1.0)));
+        return vec4(light.tint, 1.0) * light.power * cosWeight;
+    }
+    else if (light.type == 1) {
+        // Sphere Light
+        // The light direction is normalize(lightspacePosition)
+        float cosWeight = max(0.0, dot(lightspaceNormal, -normalize(lightspacePosition)));
+        float falloff = 1.0 / max(light.radius, dot(lightspacePosition, lightspacePosition));
+        vec4 lightContrib = vec4(light.tint, 1.0) * light.power * falloff * cosWeight / (4 * PI);
+
+        if (light.useLimit) {
+            float attenuation = max(0, 1 - pow(length(lightspacePosition) / light.limit, 4.0));
+            lightContrib *= attenuation;
+        }
+        return lightContrib;
+    }
+    else if (light.type == 2) {
+        // Spot Light
+        // The light direction is normalize(lightspacePosition), but the spot direction is (0, 0, -1)
+        // We calculate the light the same way as with the sphere light, but then attenuate by how close the light direction is to the spot direction
+        float cosWeight = max(0.0, dot(lightspaceNormal, -normalize(lightspacePosition)));
+        float falloff = 1.0 / max(light.radius, dot(lightspacePosition, lightspacePosition));
+        vec4 lightContrib = vec4(light.tint, 1.0) * light.power * falloff * cosWeight / (4 * PI);
+
+        // Attenuate by the spot direction
+        float halfFov = light.fov / 2.0;
+        float spotAngle = acos(dot(normalize(lightspacePosition), vec3(0.0, 0.0, -1.0)));
+        float spotAttenuation = clamp((spotAngle - halfFov) / (halfFov * (1 - light.blend) - halfFov), 0.0, 1.0);
+        lightContrib *= spotAttenuation;
+
+        if (light.useLimit) {
+            float attenuation = max(0, 1 - pow(length(lightspacePosition) / light.limit, 4.0));
+            lightContrib *= attenuation;
+        }
+        return lightContrib;
+    }
+    else {
+        return vec4(0.0, 0.0, 0.0, 1.0);
     }
 }

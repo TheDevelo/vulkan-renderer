@@ -71,44 +71,66 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
     }
     Material& material = materials[mesh.materialIndex];
 
-    // Bind the appropriate pipeline and descriptors
+    // Bind the appropriate pipeline based on the rendering type
     VkPipelineLayout layout;
-    if (material.type == MaterialType::SIMPLE) {
-        layout = sceneRenderInfo.pipelines.simplePipelineLayout;
-        vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.simplePipeline);
+    if (sceneRenderInfo.type == SceneRenderType::SOLID) {
+        if (material.type == MaterialType::SIMPLE) {
+            layout = sceneRenderInfo.pipelines.simplePipelineLayout;
+            vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.simplePipeline);
+        }
+        else if (material.type == MaterialType::ENVIRONMENT) {
+            layout = sceneRenderInfo.pipelines.envMirrorPipelineLayout;
+            vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.environmentPipeline);
+        }
+        else if (material.type == MaterialType::MIRROR) {
+            layout = sceneRenderInfo.pipelines.envMirrorPipelineLayout;
+            vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.mirrorPipeline);
+        }
+        else if (material.type == MaterialType::LAMBERTIAN) {
+            layout = sceneRenderInfo.pipelines.lambertianPipelineLayout;
+            vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.lambertianPipeline);
+        }
+        else if (material.type == MaterialType::PBR) {
+            layout = sceneRenderInfo.pipelines.pbrPipelineLayout;
+            vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.pbrPipeline);
+        }
+        else {
+            PANIC("mesh contains invalid material!");
+        }
     }
-    else if (material.type == MaterialType::ENVIRONMENT) {
-        layout = sceneRenderInfo.pipelines.envMirrorPipelineLayout;
-        vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.environmentPipeline);
-    }
-    else if (material.type == MaterialType::MIRROR) {
-        layout = sceneRenderInfo.pipelines.envMirrorPipelineLayout;
-        vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.mirrorPipeline);
-    }
-    else if (material.type == MaterialType::LAMBERTIAN) {
-        layout = sceneRenderInfo.pipelines.lambertianPipelineLayout;
-        vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.lambertianPipeline);
-    }
-    else if (material.type == MaterialType::PBR) {
-        layout = sceneRenderInfo.pipelines.pbrPipelineLayout;
-        vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.pbrPipeline);
+    else if (sceneRenderInfo.type == SceneRenderType::SHADOW) {
+        layout = sceneRenderInfo.pipelines.shadowPipelineLayout;
+        vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.shadowPipeline);
     }
     else {
-        PANIC("mesh contains invalid material!");
+        PANIC("trying to render an unsupported render type!");
     }
 
-    vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &cameraDescriptorSet, 1, &sceneRenderInfo.cameraDescriptorOffset);
-    vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &material.descriptorSet, 0, nullptr);
-    if (material.type != MaterialType::SIMPLE) {
-        if (environments.size() == 0) {
-            PANIC("tried to render non-simple material, but we have no environments!");
+    // Bind the appropriate descriptors based on the rendering type
+    if (sceneRenderInfo.type == SceneRenderType::SOLID) {
+        vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &cameraDescriptorSet, 1, &sceneRenderInfo.cameraDescriptorOffset);
+        vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &material.descriptorSet, 0, nullptr);
+        if (material.type != MaterialType::SIMPLE) {
+            if (environments.size() == 0) {
+                PANIC("tried to render non-simple material, but we have no environments!");
+            }
+            vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 2, 1, &environments[0].descriptorSet, 1, &sceneRenderInfo.environmentDescriptorOffset);
         }
-        vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 2, 1, &environments[0].descriptorSet, 1, &sceneRenderInfo.environmentDescriptorOffset);
+        if (material.type == MaterialType::LAMBERTIAN || material.type == MaterialType::PBR) {
+            vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 3, 1, &lightDescriptorSet, 1, &sceneRenderInfo.lightDescriptorOffset);
+        }
     }
-    if (material.type == MaterialType::LAMBERTIAN || material.type == MaterialType::PBR) {
-        vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 3, 1, &lightDescriptorSet, 1, &sceneRenderInfo.lightDescriptorOffset);
+    else if (sceneRenderInfo.type == SceneRenderType::SHADOW) {
+        vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &lightDescriptorSet, 1, &sceneRenderInfo.lightDescriptorOffset);
     }
 
+    // Set the push constants
+    vkCmdPushConstants(sceneRenderInfo.commandBuffer, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4<float>), &worldTransform);
+    if (sceneRenderInfo.type == SceneRenderType::SHADOW) {
+        vkCmdPushConstants(sceneRenderInfo.commandBuffer, layout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(Mat4<float>), sizeof(uint32_t), &sceneRenderInfo.lightIndex);
+    }
+
+    // Set the vertex buffer for the mesh
     if (mesh.vertexBufferIndex >= buffers.size()) {
         PANIC(string_format("mesh %s includes vertex buffer %u out of range!", mesh.name.c_str(), mesh.vertexBufferIndex));
     }
@@ -116,7 +138,6 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
 
     VkDeviceSize offsets[] = {mesh.vertexBufferOffset};
     vkCmdBindVertexBuffers(sceneRenderInfo.commandBuffer, 0, 1, &meshVertBuffer, offsets);
-    vkCmdPushConstants(sceneRenderInfo.commandBuffer, layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(Mat4<float>), &worldTransform);
 
     vkCmdDraw(sceneRenderInfo.commandBuffer, mesh.vertexCount, 1, 0, 0);
 }

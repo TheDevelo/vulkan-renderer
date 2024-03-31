@@ -10,21 +10,27 @@
 // The descriptors themselves are created & managed by the owners of the resources they point to
 class MaterialPipelines {
 public:
-    MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn, VkRenderPass renderPass);
+    MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn);
     ~MaterialPipelines();
 
-    // Pipelines for each material
+    // Render Passes
+    VkRenderPass solidRenderPass;
+    VkRenderPass shadowRenderPass;
+
+    // Pipelines for each material + the shadow map
     VkPipeline simplePipeline;
     VkPipeline environmentPipeline;
     VkPipeline mirrorPipeline;
     VkPipeline lambertianPipeline;
     VkPipeline pbrPipeline;
+    VkPipeline shadowPipeline;
 
     // Pipeline layouts
     VkPipelineLayout simplePipelineLayout;
     VkPipelineLayout envMirrorPipelineLayout; // Environment and Mirror share the same layout
     VkPipelineLayout lambertianPipelineLayout;
     VkPipelineLayout pbrPipelineLayout;
+    VkPipelineLayout shadowPipelineLayout;
 
     // Descriptor set layouts
     VkDescriptorSetLayout cameraInfoLayout;
@@ -36,7 +42,8 @@ public:
 
 private:
     void createDescriptorSetLayouts();
-    void createPipelines(VkRenderPass renderPass);
+    void createRenderPasses();
+    void createPipelines();
 
     std::shared_ptr<RenderInstance> renderInstance;
 };

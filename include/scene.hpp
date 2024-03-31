@@ -32,6 +32,7 @@ struct alignas(256) EnvironmentInfo {
 
 struct alignas(256) LightInfo {
     Mat4<float> transform;
+    Mat4<float> projection;
     Vec3<float> tint;
     uint32_t type; // 0 = Sun, 1 = Sphere, 2 = Spot, uint32_t MAX = Disabled
 
@@ -52,13 +53,23 @@ struct alignas(256) LightInfo {
 };
 
 // Data required for rendering, but not managed by the scene
+enum class SceneRenderType {
+    SOLID,
+    SHADOW,
+};
+
 struct SceneRenderInfo {
     VkCommandBuffer commandBuffer;
     MaterialPipelines const& pipelines;
+    SceneRenderType type;
+
     // Descriptor offsets are used for switching between different frame copies of descriptors
     uint32_t cameraDescriptorOffset;
     uint32_t environmentDescriptorOffset;
     uint32_t lightDescriptorOffset;
+
+    // Shadow mapping info
+    uint32_t lightIndex;
 };
 
 // Container for a local-space axis-aligned bounding box. Represented by the corners with minimal XYZ and maximal XYZ
@@ -190,6 +201,7 @@ struct Light {
 
     LightInfo info;
     uint32_t shadowMapSize;
+    std::optional<uint32_t> shadowMapIndex;
 };
 
 struct UserCamera {
@@ -249,6 +261,7 @@ public:
     std::vector<Material> materials;
     std::vector<Environment> environments;
     std::vector<Light> lights;
+    std::vector<CombinedImage> shadowMaps;
     VkDescriptorSet lightDescriptorSet;
 
     float minAnimTime;

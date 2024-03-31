@@ -660,6 +660,23 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     cullingMode = options::getDefaultCullingMode();
     cameraInfo.exposure = 1.0f;
 
+    // Construct shadow maps for all spot lights that have them enabled
+    for (Light& light : lights) {
+        if (light.shadowMapSize == 0) {
+            continue;
+        }
+        if (light.info.type != 2) {
+            // Currently, skip making shadow maps for non-spot lights. Theoretically could make shadow maps for the other light types though.
+            continue;
+        }
+
+        light.shadowMapIndex = shadowMaps.size();
+        shadowMaps.emplace_back(renderInstance, light.shadowMapSize, light.shadowMapSize, VK_FORMAT_D32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+        // Set the shadow map perpsective projection transform based on the spot light's FOV
+        light.info.projection = linear::infinitePerspective(light.info.fov, 1.0f, light.info.radius);
+    }
+
     // Add a disabled light if we don't have any lights available (since the SSBO needs something to be allocated)
     if (lights.size() == 0) {
         lights.push_back(Light {
