@@ -6,11 +6,14 @@
 #include "instance.hpp"
 #include "linear.hpp"
 
+// Forward declaration of Scene so that we can pass it into the constructor
+class Scene;
+
 // Class that contains all the pipelines and descriptor layouts needed to render each material
 // The descriptors themselves are created & managed by the owners of the resources they point to
 class MaterialPipelines {
 public:
-    MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn);
+    MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn, Scene const& scene);
     ~MaterialPipelines();
 
     // Render Passes
@@ -41,7 +44,7 @@ public:
     VkDescriptorSetLayout pbrLayout;
 
 private:
-    void createDescriptorSetLayouts();
+    void createDescriptorSetLayouts(Scene const& scene);
     void createRenderPasses();
     void createPipelines();
 

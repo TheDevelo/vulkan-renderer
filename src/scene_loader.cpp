@@ -571,6 +571,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             .info = LightInfo {
                 .tint = Vec3<float>(1.0),
                 .useLimit = false,
+                .useShadowMap = false,
             },
             .shadowMapSize = 0,
         };
@@ -670,11 +671,33 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             continue;
         }
 
-        light.shadowMapIndex = shadowMaps.size();
-        shadowMaps.emplace_back(renderInstance, light.shadowMapSize, light.shadowMapSize, VK_FORMAT_D32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+        light.info.useShadowMap = true;
+        light.info.shadowMapIndex = shadowMaps.size();
+        shadowMaps.emplace_back(renderInstance, light.shadowMapSize, light.shadowMapSize, VK_FORMAT_D32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+                                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
 
         // Set the shadow map perpsective projection transform based on the spot light's FOV
         light.info.projection = linear::infinitePerspective(light.info.fov, 1.0f, light.info.radius);
+        float halfNearDist = light.info.radius * std::tan(light.info.fov / 2.0f);
+        light.shadowMapCamera = CullingCamera {
+            .halfNearWidth = halfNearDist,
+            .halfNearHeight = halfNearDist,
+            .nearZ = light.info.radius,
+        };
+    }
+    if (shadowMaps.size() == 0) {
+        // Add an empty shadow map if we don't have any lights with shadow maps (since we always index into the shadow map array in the shader)
+        shadowMaps.emplace_back(renderInstance, 1, 1, VK_FORMAT_D32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
+                                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_DEPTH_BIT);
+        VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
+        transitionImageLayout(commandBuffer, shadowMaps[0].image, VK_FORMAT_D32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VkImageSubresourceRange {
+                .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            });
+        endSingleUseCBuffer(*renderInstance, commandBuffer);
     }
 
     // Add a disabled light if we don't have any lights available (since the SSBO needs something to be allocated)

@@ -274,6 +274,7 @@ void RenderInstance::initVulkanDevice() {
     };
     VkPhysicalDeviceVulkan12Features vulkan12Features {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .runtimeDescriptorArray = VK_TRUE,
         .timelineSemaphore = VK_TRUE,
     };
     VkDeviceCreateInfo deviceCreateInfo {

@@ -24,6 +24,7 @@ layout(set = 2, binding = 3) uniform samplerCube ggxCubemap;
 layout(std430, set = 3, binding = 0) buffer LightInfoSSBO {
     LightInfo lights[];
 };
+layout(set = 3, binding = 1) uniform sampler2DShadow shadowMaps[];
 
 layout(location = 0) in VertexOutput frag;
 

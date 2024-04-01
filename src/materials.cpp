@@ -2,6 +2,7 @@
 
 #include <array>
 
+#include "scene.hpp"
 #include "options.hpp"
 #include "instance.hpp"
 #include "materials.hpp"
@@ -30,8 +31,8 @@ const uint32_t shadowVertShaderArray[] =
 #include "shaders/shadow.vert.inl"
 ;
 
-MaterialPipelines::MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn) : renderInstance(renderInstanceIn) {
-    createDescriptorSetLayouts();
+MaterialPipelines::MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn, Scene const& scene) : renderInstance(renderInstanceIn) {
+    createDescriptorSetLayouts(scene);
     createRenderPasses();
     createPipelines();
 }
@@ -61,7 +62,7 @@ MaterialPipelines::~MaterialPipelines() {
     vkDestroyRenderPass(renderInstance->device, shadowRenderPass, nullptr);
 }
 
-void MaterialPipelines::createDescriptorSetLayouts() {
+void MaterialPipelines::createDescriptorSetLayouts(Scene const& scene) {
     // Camera Info Descriptor Layout
     // Second binding is for the PBR BRDF image.
     std::array<VkDescriptorSetLayoutBinding, 2> cameraInfoBindings = {{
@@ -250,13 +251,20 @@ void MaterialPipelines::createDescriptorSetLayouts() {
     VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &pbrLayoutInfo, nullptr, &pbrLayout), "failed to create descriptor set layout!");
 
     // Light Storage Buffer Descriptor Layout
-    std::array<VkDescriptorSetLayoutBinding, 1> lightBindings = {{
+    std::array<VkDescriptorSetLayoutBinding, 2> lightBindings = {{
         {
             .binding = 0,
             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-        }
+        },
+        {
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = static_cast<uint32_t>(scene.shadowMaps.size()),
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
     }};
 
     VkDescriptorSetLayoutCreateInfo lightLayoutInfo {
@@ -482,7 +490,7 @@ void MaterialPipelines::createPipelines() {
         .depthClampEnable = VK_FALSE,
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
-        .cullMode = VK_CULL_MODE_BACK_BIT,
+        .cullMode = VK_CULL_MODE_FRONT_BIT,
         .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .depthBiasEnable = VK_FALSE,
         .lineWidth = 1.0f,

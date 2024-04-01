@@ -1,4 +1,5 @@
 #define PI 3.14159265358979323846264338327950288
+#extension GL_EXT_nonuniform_qualifier : require
 
 struct CameraInfo {
     mat4 view;
@@ -45,8 +46,12 @@ struct LightInfo {
     float fov;
     float blend;
 
+    // Shadow Map Info if we have any
+    bool useShadowMap;
+    uint shadowMapIndex;
+
     // Padding to align to 256 bytes
-    float padding[20];
+    float padding[18];
 };
 
 struct VertexOutput {
@@ -119,7 +124,7 @@ vec3 getNormal(VertexOutput frag, MaterialConstants materialConstants, sampler2D
     }
 }
 
-vec4 diffuseLightContribution(LightInfo light, vec3 normal, vec4 position) {
+vec4 diffuseLightContribution(LightInfo light, sampler2DShadow shadowMap, vec3 normal, vec4 position) {
     vec3 lightspaceNormal = normalize(mat3(transpose(inverse(light.transform))) * normal);
     vec3 lightspacePosition = (light.transform * position).xyz;
 
@@ -160,7 +165,19 @@ vec4 diffuseLightContribution(LightInfo light, vec3 normal, vec4 position) {
             float attenuation = max(0, 1 - pow(length(lightspacePosition) / light.limit, 4.0));
             lightContrib *= attenuation;
         }
-        return lightContrib;
+
+        // Use shadow map to calculate if we are in shadow
+        if (light.useShadowMap) {
+            vec4 shadowMapPosition = light.projection * light.transform * position;
+            // Do the perspective divide and shift the range from [-1,1] to [0,1]
+            shadowMapPosition.xyz /= shadowMapPosition.w;
+            shadowMapPosition.xy *= 0.5;
+            shadowMapPosition.xy += 0.5;
+            return lightContrib * texture(shadowMap, shadowMapPosition.xyz);
+        }
+        else {
+            return lightContrib;
+        }
     }
     else {
         return vec4(0.0, 0.0, 0.0, 1.0);

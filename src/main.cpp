@@ -53,6 +53,7 @@ private:
 
     VkSampler repeatingSampler;
     VkSampler clampedSampler;
+    VkSampler shadowMapSampler;
 
     std::unique_ptr<CombinedImage> depthImage;
 
@@ -80,7 +81,7 @@ private:
     uint32_t currentFrame = 0;
 
     void initVulkan() {
-        materialPipelines = std::make_unique<MaterialPipelines>(renderInstance);
+        materialPipelines = std::make_unique<MaterialPipelines>(renderInstance, scene);
 
         createCommandBuffers();
 
@@ -128,14 +129,14 @@ private:
         // Create shadow map framebuffers
         shadowMapFramebuffers.resize(scene.shadowMaps.size());
         // Need to loop over the lights instead of the shadow map targets since we also need the size of the shadow maps
-        for (size_t lightI = 0; lightI < scene.lights.size(); lightI++) {
-            if (!scene.lights[lightI].shadowMapIndex.has_value()) {
+        for (size_t i = 0; i < scene.lights.size(); i++) {
+            if (!scene.lights[i].info.useShadowMap) {
                 continue;
             }
-            size_t i = scene.lights[lightI].shadowMapIndex.value();
+            size_t shadowMapIndex = scene.lights[i].info.shadowMapIndex;
 
             std::array<VkImageView, 1> attachments = {
-                scene.shadowMaps[i].imageView,
+                scene.shadowMaps[shadowMapIndex].imageView,
             };
 
             VkFramebufferCreateInfo framebufferInfo {
@@ -143,12 +144,12 @@ private:
                 .renderPass = materialPipelines->shadowRenderPass,
                 .attachmentCount = static_cast<uint32_t>(attachments.size()),
                 .pAttachments = attachments.data(),
-                .width = scene.lights[lightI].shadowMapSize,
-                .height = scene.lights[lightI].shadowMapSize,
+                .width = scene.lights[i].shadowMapSize,
+                .height = scene.lights[i].shadowMapSize,
                 .layers = 1,
             };
 
-            VK_ERR(vkCreateFramebuffer(renderInstance->device, &framebufferInfo, nullptr, &shadowMapFramebuffers[i]), "failed to create framebuffer!");
+            VK_ERR(vkCreateFramebuffer(renderInstance->device, &framebufferInfo, nullptr, &shadowMapFramebuffers[shadowMapIndex]), "failed to create framebuffer!");
         }
     }
 
@@ -211,9 +212,28 @@ private:
             .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
             .unnormalizedCoordinates = VK_FALSE,
         };
+        VkSamplerCreateInfo shadowMapSamplerInfo {
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter = VK_FILTER_LINEAR,
+            .minFilter = VK_FILTER_LINEAR,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+            .mipLodBias = 0.0f,
+            .anisotropyEnable = VK_TRUE,
+            .maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+            .compareEnable = VK_TRUE,
+            .compareOp = VK_COMPARE_OP_LESS,
+            .minLod = 0.0f,
+            .maxLod = VK_LOD_CLAMP_NONE,
+            .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+            .unnormalizedCoordinates = VK_FALSE,
+        };
 
         VK_ERR(vkCreateSampler(renderInstance->device, &repeatingSamplerInfo, nullptr, &repeatingSampler), "failed to create texture sampler!");
         VK_ERR(vkCreateSampler(renderInstance->device, &clampedSamplerInfo, nullptr, &clampedSampler), "failed to create texture sampler!");
+        VK_ERR(vkCreateSampler(renderInstance->device, &shadowMapSamplerInfo, nullptr, &shadowMapSampler), "failed to create texture sampler!");
     }
 
     // Also creates storage buffers too :)
@@ -270,11 +290,12 @@ private:
         uint32_t lambertianDescs = scene.materialCounts.lambertian;
         uint32_t pbrDescs = scene.materialCounts.pbr;
         uint32_t lightDescs = 1;
+        uint32_t shadowMapDescs = scene.shadowMaps.size();
 
         uint32_t uniformDescs = simpleEnvMirrorDescs + lambertianDescs + pbrDescs;
         uint32_t dynamicUniformDescs = cameraDescs + environmentDescs;
         uint32_t dynamicStorageDescs = lightDescs;
-        uint32_t combinedImageSamplerDescs = cameraDescs + 3 * environmentDescs + 2 * simpleEnvMirrorDescs + 3 * lambertianDescs + 5 * pbrDescs;
+        uint32_t combinedImageSamplerDescs = cameraDescs + 3 * environmentDescs + 2 * simpleEnvMirrorDescs + 3 * lambertianDescs + 5 * pbrDescs + shadowMapDescs;
 
         // Create the descriptor pool
         // NOTE: Each type needs at least 1 descriptor to allocate, or else we get an error
@@ -632,6 +653,23 @@ private:
             .pBufferInfo = &lightBufferInfo,
         });
 
+        for (uint32_t i = 0; i < scene.shadowMaps.size(); i++) {
+            VkDescriptorImageInfo& displacementInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+                .sampler = shadowMapSampler,
+                .imageView = scene.shadowMaps[i].imageView,
+                .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+            });
+            descriptorWrites.emplace_back(VkWriteDescriptorSet {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = scene.lightDescriptorSet,
+                .dstBinding = 1,
+                .dstArrayElement = i,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &displacementInfo,
+            });
+        }
+
         // Commit all the writes
         vkUpdateDescriptorSets(renderInstance->device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     }
@@ -866,10 +904,10 @@ private:
 
         // Start by rendering the shadow maps
         for (uint32_t i = 0; i < scene.lights.size(); i++) {
-            if (!scene.lights[i].shadowMapIndex.has_value()) {
+            if (!scene.lights[i].info.useShadowMap) {
                 continue;
             }
-            size_t shadowMapIndex = scene.lights[i].shadowMapIndex.value();
+            size_t shadowMapIndex = scene.lights[i].info.shadowMapIndex;
             VkExtent2D shadowMapExtent {
                 .width = scene.lights[i].shadowMapSize,
                 .height = scene.lights[i].shadowMapSize,
@@ -922,8 +960,17 @@ private:
             };
             scene.renderScene(sceneRenderInfo);
 
-            // End our render pass and command buffer
+            // End our render pass
             vkCmdEndRenderPass(commandBuffer);
+
+            // Transition the shadow map into a format that can be read by the shaders
+            transitionImageLayout(commandBuffer, scene.shadowMaps[shadowMapIndex].image, VK_FORMAT_D32_SFLOAT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VkImageSubresourceRange {
+                    .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                });
         }
 
         // Start the solid render pass
@@ -1011,6 +1058,7 @@ public:
 
         vkDestroySampler(renderInstance->device, repeatingSampler, nullptr);
         vkDestroySampler(renderInstance->device, clampedSampler, nullptr);
+        vkDestroySampler(renderInstance->device, shadowMapSampler, nullptr);
 
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(renderInstance->device, imageAvailableSemaphores[i], nullptr);

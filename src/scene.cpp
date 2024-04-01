@@ -29,7 +29,11 @@ void Scene::renderNode(SceneRenderInfo const& sceneRenderInfo, uint32_t nodeId, 
     Node& node = nodes[nodeId];
 
     // Cull the node
-    if (cullingMode == CullingMode::BVH && node.bbox.has_value() && !bboxInViewFrustum(parentToWorldTransform, node.bbox.value())) {
+    CullingCamera cullingCamera = viewCullingCamera;
+    if (sceneRenderInfo.type == SceneRenderType::SHADOW) {
+        cullingCamera = lights[sceneRenderInfo.lightIndex].shadowMapCamera.value();
+    }
+    if (cullingMode == CullingMode::BVH && node.bbox.has_value() && !bboxInViewFrustum(parentToWorldTransform, node.bbox.value(), cullingCamera)) {
         return;
     }
 
@@ -61,7 +65,11 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
     Mesh& mesh = meshes[meshId];
 
     // Cull the mesh
-    if (cullingMode != CullingMode::OFF && !bboxInViewFrustum(worldTransform, mesh.bbox)) {
+    CullingCamera cullingCamera = viewCullingCamera;
+    if (sceneRenderInfo.type == SceneRenderType::SHADOW) {
+        cullingCamera = lights[sceneRenderInfo.lightIndex].shadowMapCamera.value();
+    }
+    if (cullingMode != CullingMode::OFF && !bboxInViewFrustum(worldTransform, mesh.bbox, cullingCamera)) {
         return;
     }
 
@@ -212,7 +220,7 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
         // Half near height = nearZ * tan(vFov/2), and Half near width = Half near width * aspectRatio
         float halfNearHeight = nearZ * std::tan(vFov / 2.0f);
         float halfNearWidth = halfNearHeight * aspectRatio;
-        cullingCamera = CullingCamera {
+        viewCullingCamera = CullingCamera {
             .viewMatrix = cameraInfo.view,
             .halfNearWidth = halfNearWidth,
             .halfNearHeight = halfNearHeight,
@@ -259,6 +267,10 @@ void Scene::updateLightTransforms() {
             worldToLightMatrix = linear::mmul(worldToLightMatrix, node.invTransform);
         }
         light.info.transform = worldToLightMatrix;
+
+        if (light.shadowMapCamera.has_value()) {
+            light.shadowMapCamera.value().viewMatrix = light.info.transform;
+        }
     }
 }
 
@@ -437,7 +449,7 @@ bool bboxBehindPlane(Vec3<float> const& planePos, Vec3<float> const& planeNormal
     return cornerDot + extentXDot + extentYDot + extentZDot < -EPSILON;
 }
 
-bool Scene::bboxInViewFrustum(Mat4<float> const& worldTransform, AxisAlignedBoundingBox const& bbox) {
+bool Scene::bboxInViewFrustum(Mat4<float> const& worldTransform, AxisAlignedBoundingBox const& bbox, CullingCamera const& cullingCamera) {
     // Transform the bounding box into view space by transforming one corner of the bounding box, and the XYZ extents to the opposite corner
     Mat4<float> localToView = linear::mmul(cullingCamera.viewMatrix, worldTransform);
     Vec3<float> bboxCorner = linear::mmul(localToView, Vec4<float>(bbox.minCorner, 1.0f)).xyz;

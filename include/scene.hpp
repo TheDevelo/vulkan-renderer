@@ -50,6 +50,10 @@ struct alignas(256) LightInfo {
     // Spot Info
     float fov;
     float blend;
+
+    // Shadow Map Info if we have any
+    alignas(4) bool useShadowMap;
+    uint32_t shadowMapIndex;
 };
 
 // Data required for rendering, but not managed by the scene
@@ -130,6 +134,15 @@ struct Camera {
     std::vector<uint32_t> ancestors;
 };
 
+// Camera information required to frustum cull a bounding box
+struct CullingCamera {
+    Mat4<float> viewMatrix;
+    float halfNearWidth;
+    float halfNearHeight;
+    float nearZ;
+    std::optional<float> farZ;
+};
+
 enum DriverChannel {
     DRIVER_TRANSLATION,
     DRIVER_SCALE,
@@ -201,22 +214,13 @@ struct Light {
 
     LightInfo info;
     uint32_t shadowMapSize;
-    std::optional<uint32_t> shadowMapIndex;
+    std::optional<CullingCamera> shadowMapCamera; // Used to cull objects during shadow map rendering
 };
 
 struct UserCamera {
     float theta; // Measures Z angle, ranges from -PI/2 to PI/2
     float phi; // Measures XY angle
     Vec3<float> position;
-};
-
-// Camera information required to frustum cull a bounding box
-struct CullingCamera {
-    Mat4<float> viewMatrix;
-    float halfNearWidth;
-    float halfNearHeight;
-    float nearZ;
-    std::optional<float> farZ;
 };
 
 enum class CullingMode {
@@ -282,7 +286,7 @@ private:
     bool computeNodeBBox(uint32_t nodeId, std::set<uint32_t>& dynamicNodes, std::set<uint32_t>& visitedNodes);
     void calculateAncestors(std::vector<Light> const& lightTemplates);
 
-    bool bboxInViewFrustum(Mat4<float> const& worldTransform, AxisAlignedBoundingBox const& bbox);
+    bool bboxInViewFrustum(Mat4<float> const& worldTransform, AxisAlignedBoundingBox const& bbox, CullingCamera const& cullingCamera);
 
     std::vector<uint32_t> sceneRoots;
     std::vector<Node> nodes;
@@ -291,7 +295,7 @@ private:
     std::vector<CombinedBuffer> buffers;
 
     // We store a separate struct for the culling camera, which simplifies culling logic & makes debug mode possible
-    CullingCamera cullingCamera;
+    CullingCamera viewCullingCamera;
     UserCamera userCamera;
 
     uint32_t materialConstantsBufferIndex;

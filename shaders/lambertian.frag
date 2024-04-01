@@ -20,6 +20,7 @@ layout(set = 2, binding = 2) uniform samplerCube lambertianCubemap;
 layout(std430, set = 3, binding = 0) buffer LightInfoSSBO {
     LightInfo lights[];
 };
+layout(set = 3, binding = 1) uniform sampler2DShadow shadowMaps[];
 
 layout(location = 0) in VertexOutput frag;
 
@@ -43,7 +44,7 @@ void main() {
 
     // Compute the light contribution from each analytic light
     for (int i = 0; i < lights.length(); i++) {
-        totalLight += diffuseLightContribution(lights[i], normal, frag.worldPos);
+        totalLight += diffuseLightContribution(lights[i], shadowMaps[lights[i].shadowMapIndex], normal, frag.worldPos);
     }
 
     outColor = tonemap(frag.color * diffuseColor * totalLight, camera.exposure);
