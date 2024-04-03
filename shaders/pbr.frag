@@ -71,10 +71,16 @@ void main() {
     vec3 diffuseLookupDir = (envInfo.transform * vec4(normal, 0.0)).xyz;
     vec3 specularLookupDir = (envInfo.transform * vec4(mirrorDir, 0.0)).xyz;
 
-    // Calculate the specular and diffuse radiances
-    vec3 diffuse = albedo.rgb * (1 - metalness) * texture(lambertianCubemap, diffuseLookupDir).rgb;
+    // Calculate the specular and diffuse radiances for our environment
+    vec4 totalDiffuse = albedo * (1 - metalness) * texture(lambertianCubemap, diffuseLookupDir);
     vec3 specularEnv = textureLod(ggxCubemap, specularLookupDir, baseRoughnessLOD).rgb * (1.0 - roughnessT) + textureLod(ggxCubemap, specularLookupDir, baseRoughnessLOD + 1.0).rgb * roughnessT;
-    vec3 specular = specularEnv * (f0 * brdf.x + brdf.y);
+    vec4 totalSpecular = vec4(specularEnv * (f0 * brdf.x + brdf.y), albedo.a);
 
-    outColor = tonemap(frag.color * vec4(diffuse + specular, albedo.a), camera.exposure);
+    // Compute analytic light contributions
+    for (int i = 0; i < lights.length(); i++) {
+        totalDiffuse += albedo * (1 - metalness) * diffuseLightContribution(lights[i], shadowMaps[lights[i].shadowMapIndex], normal, frag.worldPos);
+        totalSpecular += specularLightContribution(lights[i], shadowMaps[lights[i].shadowMapIndex], roughness, f0, normal, frag.viewDir, frag.worldPos);
+    }
+
+    outColor = tonemap(frag.color * (totalDiffuse + totalSpecular), camera.exposure);
 }
