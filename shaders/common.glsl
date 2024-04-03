@@ -237,16 +237,75 @@ vec4 specularLightContribution(LightInfo light, sampler2DShadow shadowMap,
         float alphaPrime = clamp(alpha + 2 * PI * (1 - cos(light.angle / 2)), 0.0, 1.0);
         float normalizationFactor = alpha * alpha / (alphaPrime * alphaPrime);
         lightContrib *= normalizationFactor;
+
         return lightContrib;
     }
-    // TODO: implement specular contribution for sphere and spot lights
     else if (light.type == 1) {
         // Sphere Light
-        return vec4(0.0, 0.0, 0.0, 1.0);
+        // First, find the representative light direction on the sphere closest to mirror (as per Epic)
+        vec3 closestRayDir = lightspacePosition - dot(lightspacePosition, lightspaceMirror) * lightspaceMirror;
+        vec3 closestPointDir = closestRayDir * clamp(light.radius / length(closestRayDir), 0.0, 1.0) - lightspacePosition;
+        vec3 lightDir = normalize(closestPointDir);
+
+        // Now calculate the light contribution as BRDF * (power * falloff / 4 PI) * cosWeight
+        float cosWeight = max(0.0, dot(lightspaceNormal, lightDir));
+        float falloff = 1.0 / max(light.radius, dot(closestPointDir, closestPointDir));
+        vec4 brdf = vec4(ggxBRDF(lightspaceNormal, lightspaceView, lightDir, roughness, f0), 1.0);
+        vec4 lightContrib = vec4(light.tint, 1.0) * light.power * falloff * cosWeight * brdf / (4 * PI);
+
+        if (light.useLimit) {
+            float attenuation = max(0, 1 - pow(length(lightspacePosition) / light.limit, 4.0));
+            lightContrib *= attenuation;
+        }
+
+        // Normalize based on (alpha / alpha')^2
+        float alphaPrime = clamp(alpha + light.radius / (2 * length(closestPointDir)), 0.0, 1.0);
+        float normalizationFactor = alpha * alpha / (alphaPrime * alphaPrime);
+        lightContrib *= normalizationFactor;
+
+        return lightContrib;
     }
     else if (light.type == 2) {
         // Spot Light
-        return vec4(0.0, 0.0, 0.0, 1.0);
+        // First, find the representative light direction on the sphere closest to mirror (as per Epic)
+        vec3 closestRayDir = lightspacePosition - dot(lightspacePosition, lightspaceMirror) * lightspaceMirror;
+        vec3 closestPointDir = closestRayDir * clamp(light.radius / length(closestRayDir), 0.0, 1.0) - lightspacePosition;
+        vec3 lightDir = normalize(closestPointDir);
+
+        // Now calculate the light contribution as BRDF * (power * falloff / 4 PI) * cosWeight
+        float cosWeight = max(0.0, dot(lightspaceNormal, lightDir));
+        float falloff = 1.0 / max(light.radius, dot(closestPointDir, closestPointDir));
+        vec4 brdf = vec4(ggxBRDF(lightspaceNormal, lightspaceView, lightDir, roughness, f0), 1.0);
+        vec4 lightContrib = vec4(light.tint, 1.0) * light.power * falloff * cosWeight * brdf / (4 * PI);
+
+        // Attenuate by the spot direction
+        float halfFov = light.fov / 2.0;
+        float spotAngle = acos(dot(normalize(lightspacePosition), -lightDir));
+        float spotAttenuation = clamp((spotAngle - halfFov) / (halfFov * (1 - light.blend) - halfFov), 0.0, 1.0);
+        lightContrib *= spotAttenuation;
+
+        if (light.useLimit) {
+            float attenuation = max(0, 1 - pow(length(lightspacePosition) / light.limit, 4.0));
+            lightContrib *= attenuation;
+        }
+
+        // Normalize based on (alpha / alpha')^2
+        float alphaPrime = clamp(alpha + light.radius / (2 * length(closestPointDir)), 0.0, 1.0);
+        float normalizationFactor = alpha * alpha / (alphaPrime * alphaPrime);
+        lightContrib *= normalizationFactor;
+
+        // Use shadow map to calculate if we are in shadow
+        if (light.useShadowMap) {
+            vec4 shadowMapPosition = light.projection * light.transform * position;
+            // Do the perspective divide and shift the range from [-1,1] to [0,1]
+            shadowMapPosition.xyz /= shadowMapPosition.w;
+            shadowMapPosition.xy *= 0.5;
+            shadowMapPosition.xy += 0.5;
+            return lightContrib * texture(shadowMap, shadowMapPosition.xyz);
+        }
+        else {
+            return lightContrib;
+        }
     }
     else {
         return vec4(0.0, 0.0, 0.0, 1.0);
