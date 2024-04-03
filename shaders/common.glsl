@@ -151,6 +151,38 @@ vec3 ggxBRDF(vec3 normal, vec3 view, vec3 light, float roughness, vec3 f0) {
     return D * F * G / (4.0 * NoL * NoV);
 }
 
+// Calculates whether a pixel is in shadow from the shadow map
+float getShadowValue(LightInfo light, sampler2DShadow shadowMap, vec4 position) {
+    if (!light.useShadowMap) {
+        return 1.0;
+    }
+
+    // Calculate the position of the pixel in the shadow map
+    vec4 shadowMapPosition = light.projection * light.transform * position;
+
+    // Do the perspective divide and shift the range from [-1,1] to [0,1]
+    shadowMapPosition.xyz /= shadowMapPosition.w;
+    shadowMapPosition.xy *= 0.5;
+    shadowMapPosition.xy += 0.5;
+
+    // Perform PCF with a 3x3 kernel to create a smooth shadow edge
+    vec2 samplingOffset = 1.0 / vec2(textureSize(shadowMap, 0));
+    float shadow = 0.0;
+    for (int xOff = -2; xOff <= 2; xOff++) {
+        for (int yOff = -2; yOff <= 2; yOff++) {
+            vec3 offsetPosition = shadowMapPosition.xyz;
+            offsetPosition.xy += vec2(xOff, yOff) * samplingOffset;
+            shadow += texture(shadowMap, offsetPosition) / 25.0;
+        }
+    }
+
+    // Rescale and threshold the shadow value to help prevent light peek near the edges of shadow-casting objects
+    // Essentially treats shadow values < 0.5 as in full shadow.
+    shadow = clamp(2.0 * shadow - 1.0, 0.0, 1.0);
+
+    return shadow;
+}
+
 vec4 diffuseLightContribution(LightInfo light, sampler2DShadow shadowMap, vec3 normal, vec4 position) {
     vec3 lightspaceNormal = normalize(mat3(transpose(inverse(light.transform))) * normal);
     vec3 lightspacePosition = (light.transform * position).xyz;
@@ -193,18 +225,8 @@ vec4 diffuseLightContribution(LightInfo light, sampler2DShadow shadowMap, vec3 n
             lightContrib *= attenuation;
         }
 
-        // Use shadow map to calculate if we are in shadow
-        if (light.useShadowMap) {
-            vec4 shadowMapPosition = light.projection * light.transform * position;
-            // Do the perspective divide and shift the range from [-1,1] to [0,1]
-            shadowMapPosition.xyz /= shadowMapPosition.w;
-            shadowMapPosition.xy *= 0.5;
-            shadowMapPosition.xy += 0.5;
-            return lightContrib * texture(shadowMap, shadowMapPosition.xyz);
-        }
-        else {
-            return lightContrib;
-        }
+        // Return light attenuated by shadow value
+        return lightContrib * getShadowValue(light, shadowMap, position);
     }
     else {
         return vec4(0.0, 0.0, 0.0, 1.0);
@@ -294,18 +316,8 @@ vec4 specularLightContribution(LightInfo light, sampler2DShadow shadowMap,
         float normalizationFactor = alpha * alpha / (alphaPrime * alphaPrime);
         lightContrib *= normalizationFactor;
 
-        // Use shadow map to calculate if we are in shadow
-        if (light.useShadowMap) {
-            vec4 shadowMapPosition = light.projection * light.transform * position;
-            // Do the perspective divide and shift the range from [-1,1] to [0,1]
-            shadowMapPosition.xyz /= shadowMapPosition.w;
-            shadowMapPosition.xy *= 0.5;
-            shadowMapPosition.xy += 0.5;
-            return lightContrib * texture(shadowMap, shadowMapPosition.xyz);
-        }
-        else {
-            return lightContrib;
-        }
+        // Return light attenuated by shadow value
+        return lightContrib * getShadowValue(light, shadowMap, position);
     }
     else {
         return vec4(0.0, 0.0, 0.0, 1.0);
