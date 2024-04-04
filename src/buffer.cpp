@@ -312,7 +312,7 @@ std::unique_ptr<CombinedImage> loadImage(std::shared_ptr<RenderInstance>& render
     int textureWidth, textureHeight, textureChannels;
     stbi_uc* pixels = stbi_load(path.c_str(), &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);
     if (!pixels) {
-        PANIC("failed to load texture image!");
+        PANIC(string_format("failed to load texture image! - %s", path.c_str()));
     }
 
     // Create a staging buffer for our image
@@ -349,7 +349,7 @@ std::unique_ptr<CombinedCubemap> loadCubemap(std::shared_ptr<RenderInstance>& re
     int textureWidth, textureHeight, textureChannels;
     stbi_uc* pixels = stbi_load(path.c_str(), &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);
     if (!pixels) {
-        PANIC("failed to load texture image!");
+        PANIC(string_format("failed to load texture image! - %s", path.c_str()));
     }
     textureHeight /= 6;
 
@@ -411,7 +411,7 @@ void loadMipmapIntoCubemap(std::shared_ptr<RenderInstance>& renderInstance, Comb
     int textureWidth, textureHeight, textureChannels;
     stbi_uc* pixels = stbi_load(path.c_str(), &textureWidth, &textureHeight, &textureChannels, STBI_rgb_alpha);
     if (!pixels) {
-        PANIC("failed to load texture image!");
+        PANIC(string_format("failed to load texture image! - %s", path.c_str()));
     }
     textureHeight /= 6;
 

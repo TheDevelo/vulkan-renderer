@@ -244,7 +244,7 @@ void Scene::updateEnvironmentTransforms() {
             }
             Node& node = nodes[nodeId];
 
-            worldToEnvMatrix = linear::mmul(worldToEnvMatrix, node.invTransform);
+            worldToEnvMatrix = linear::mmul(node.invTransform, worldToEnvMatrix);
         }
         environment.info.transform = worldToEnvMatrix;
     }
@@ -264,7 +264,7 @@ void Scene::updateLightTransforms() {
             }
             Node& node = nodes[nodeId];
 
-            worldToLightMatrix = linear::mmul(worldToLightMatrix, node.invTransform);
+            worldToLightMatrix = linear::mmul(node.invTransform, worldToLightMatrix);
         }
         light.info.transform = worldToLightMatrix;
 

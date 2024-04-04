@@ -165,7 +165,7 @@ float getShadowValue(LightInfo light, sampler2DShadow shadowMap, vec4 position) 
     shadowMapPosition.xy *= 0.5;
     shadowMapPosition.xy += 0.5;
 
-    // Perform PCF with a 3x3 kernel to create a smooth shadow edge
+    // Perform PCF with a 5x5 kernel to create a smooth shadow edge
     vec2 samplingOffset = 1.0 / vec2(textureSize(shadowMap, 0));
     float shadow = 0.0;
     for (int xOff = -2; xOff <= 2; xOff++) {
@@ -302,7 +302,7 @@ vec4 specularLightContribution(LightInfo light, sampler2DShadow shadowMap,
 
         // Attenuate by the spot direction
         float halfFov = light.fov / 2.0;
-        float spotAngle = acos(dot(normalize(lightspacePosition), -lightDir));
+        float spotAngle = acos(dot(normalize(lightspacePosition), vec3(0.0, 0.0, -1.0)));
         float spotAttenuation = clamp((spotAngle - halfFov) / (halfFov * (1 - light.blend) - halfFov), 0.0, 1.0);
         lightContrib *= spotAttenuation;
 
