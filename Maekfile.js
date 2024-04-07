@@ -53,6 +53,7 @@ const cube_obj = maek.CPP('src/utilities/cube.cpp');
 const VKRenderer_objs = [
 	maek.CPP('src/util.cpp'),
 	maek.CPP('src/buffer.cpp'),
+	maek.CPP('src/descriptor.cpp'),
 	maek.CPP('src/json.cpp'),
 	maek.CPP('src/materials.cpp', undefined, { depends: [...shaders] }), // Includes our shaders, so depends on the shader tasks
 	maek.CPP('src/options.cpp'),
