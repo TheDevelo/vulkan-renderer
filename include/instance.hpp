@@ -10,7 +10,7 @@
 
 // Options for the render instance constructor
 struct RenderInstanceOptions {
-    bool headless;
+    bool lightweight;
 };
 
 // Container struct for queue family indices
@@ -162,6 +162,9 @@ public:
     };
 
 private:
+    // Determines whether we have a lightweight instance (one without a windowing system, whether real or headless)
+    bool lightweight;
+
     // Real window state
     GLFWwindow* window;
     VkSwapchainKHR swapChain;

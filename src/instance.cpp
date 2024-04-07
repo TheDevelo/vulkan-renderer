@@ -68,28 +68,30 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 
 // Forward declared helper-functions
 bool checkValidationLayerSupport();
-std::vector<const char*> getRequiredExtensions();
+std::vector<const char*> getRequiredExtensions(bool lightweight);
 bool checkDeviceExtensionSupport(VkPhysicalDevice device);
 
 // Render instance constructor
 RenderInstance::RenderInstance(RenderInstanceOptions const& opts) {
-    if (!options::isHeadless()) {
+    lightweight = opts.lightweight;
+
+    if (!options::isHeadless() && !lightweight) {
         initRealWindow();
     }
 
     initVulkanInstance();
-    if (!options::isHeadless()) {
+    if (!options::isHeadless() && !lightweight) {
         initVulkanSurface();
     }
     initVulkanDevice();
 
-    if (!options::isHeadless()) {
+    if (!options::isHeadless() && !lightweight) {
         createRealSwapChain();
     }
 
     createCommandPool();
 
-    if (options::isHeadless()) {
+    if (options::isHeadless() && !lightweight) {
         initHeadless();
     }
 };
@@ -101,10 +103,10 @@ RenderInstance::~RenderInstance() {
         writer.join();
     }
 
-    if (options::isHeadless()) {
+    if (options::isHeadless() && !lightweight) {
         cleanupHeadless();
     }
-    else {
+    else if (!lightweight) {
         // Clean up the swapchain, surface, and window
         cleanupRealSwapChain();
 
@@ -139,7 +141,7 @@ void RenderInstance::initVulkanInstance() {
     };
 
     // Need to get extensions required for Vulkan before we can request our instance
-    std::vector<const char*> extensions = getRequiredExtensions();
+    std::vector<const char*> extensions = getRequiredExtensions(lightweight);
 
     VkInstanceCreateInfo instanceCreateInfo {
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
@@ -175,10 +177,10 @@ void RenderInstance::initVulkanInstance() {
     }
 }
 
-std::vector<const char*> getRequiredExtensions() {
+std::vector<const char*> getRequiredExtensions(bool lightweight) {
     std::vector<const char*> extensions;
 
-    if (!options::isHeadless()) {
+    if (!options::isHeadless() && !lightweight) {
         // Use GLFW extension list as a base. Once we replace with X11, then we won't need GLFW extensions.
         uint32_t glfwExtCount = 0;
         const char** glfwExtensions;
@@ -264,7 +266,7 @@ void RenderInstance::initVulkanDevice() {
     }
 
     // Create our logical device
-    if (!options::isHeadless()) {
+    if (!options::isHeadless() && !lightweight) {
         // Add the swapchain extension if not in headless mode
         deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     }
@@ -318,7 +320,7 @@ bool RenderInstance::isDeviceSuitable(VkPhysicalDevice device) {
     }
 
     // Make sure we have an adequate swap chain available if in interactive mode
-    if (!options::isHeadless()) {
+    if (!options::isHeadless() && !lightweight) {
         SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
         if (swapChainSupport.formats.empty() || swapChainSupport.presentModes.empty()) {
             return false;
@@ -380,8 +382,8 @@ QueueFamilyIndices RenderInstance::findQueueFamilies(VkPhysicalDevice device) {
         }
 
         // Check for a queue that supports presentation if in interactive mode.
-        if (options::isHeadless()) {
-            // If in headless, just pretend presentQueue = graphicsQueue (fine since we don't need to present anyways)
+        if (options::isHeadless() || lightweight) {
+            // If in headless/lightweight, just pretend presentQueue = graphicsQueue (fine since we don't need to present anyways)
             indices.presentFamily = indices.graphicsFamily;
         }
         else {

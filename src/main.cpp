@@ -62,7 +62,7 @@ private:
     uint32_t currentFrame = 0;
 
     void initVulkan() {
-        materialPipelines = std::make_unique<MaterialPipelines>(renderInstance, scene);
+        materialPipelines = std::make_unique<MaterialPipelines>(renderInstance, scene, renderInstance->renderImageFormat);
 
         createCommandBuffers();
 
@@ -75,11 +75,9 @@ private:
     }
 
     void initRenderInstance() {
-        RenderInstanceOptions options {
-            .headless = false,
-        };
-
-        renderInstance = std::shared_ptr<RenderInstance>(new RenderInstance(options));
+        renderInstance = std::make_shared<RenderInstance>(RenderInstanceOptions {
+            .lightweight = false,
+        });
     }
 
     void createFramebuffers() {

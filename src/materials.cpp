@@ -31,9 +31,9 @@ const uint32_t shadowVertShaderArray[] =
 #include "shaders/shadow.vert.inl"
 ;
 
-MaterialPipelines::MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn, Scene const& scene) : renderInstance(renderInstanceIn) {
+MaterialPipelines::MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn, Scene const& scene, VkFormat solidImageFormat) : renderInstance(renderInstanceIn) {
     createDescriptorSetLayouts(scene);
-    createRenderPasses();
+    createRenderPasses(solidImageFormat);
     createPipelines();
 }
 
@@ -276,10 +276,10 @@ void MaterialPipelines::createDescriptorSetLayouts(Scene const& scene) {
 }
 
 // Creates the renderes pass for both solid rendering and shadow map rendering
-void MaterialPipelines::createRenderPasses() {
+void MaterialPipelines::createRenderPasses(VkFormat solidImageFormat) {
     // The attachment describes our screen's framebuffer, and how we want the render pass to modify it.
     VkAttachmentDescription colorAttachment {
-        .format = renderInstance->renderImageFormat,
+        .format = solidImageFormat,
         .samples = VK_SAMPLE_COUNT_1_BIT,
         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,

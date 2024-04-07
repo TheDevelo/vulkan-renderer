@@ -13,7 +13,7 @@ class Scene;
 // The descriptors themselves are created & managed by the owners of the resources they point to
 class MaterialPipelines {
 public:
-    MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn, Scene const& scene);
+    MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn, Scene const& scene, VkFormat solidImageFormat);
     ~MaterialPipelines();
 
     // Render Passes
@@ -45,7 +45,7 @@ public:
 
 private:
     void createDescriptorSetLayouts(Scene const& scene);
-    void createRenderPasses();
+    void createRenderPasses(VkFormat solidImageFormat);
     void createPipelines();
 
     std::shared_ptr<RenderInstance> renderInstance;
