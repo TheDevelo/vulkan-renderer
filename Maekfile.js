@@ -33,7 +33,7 @@ const shaders = [
 ];
 
 //set default targets to build (can be overridden by command line options):
-maek.TARGETS = ["bin/viewer", "bin/cube"];
+maek.TARGETS = ["bin/viewer", "bin/cube", "bin/local-ibl"];
 
 // Set CPP options
 maek.options.CPPFlags.push(
@@ -50,6 +50,7 @@ maek.options.CPPFlags.push(
 
 const main_obj = maek.CPP('src/main.cpp');
 const cube_obj = maek.CPP('src/utilities/cube.cpp');
+const local_obj = maek.CPP('src/utilities/local_ibl.cpp');
 const VKRenderer_objs = [
 	maek.CPP('src/util.cpp'),
 	maek.CPP('src/buffer.cpp'),
@@ -78,6 +79,7 @@ VKRenderer_options.LINKLibs = [...maek.options.LINKLibs,
 ];
 const VKRenderer_bin = maek.LINK([main_obj, ...VKRenderer_objs], 'bin/viewer', VKRenderer_options);
 const cube_bin = maek.LINK([cube_obj, ...VKRenderer_objs], 'bin/cube', VKRenderer_options);
+const local_bin = maek.LINK([local_obj, ...VKRenderer_objs], 'bin/local-ibl', VKRenderer_options);
 
 //======================================================================
 //Now, onward to the code that makes all this work:

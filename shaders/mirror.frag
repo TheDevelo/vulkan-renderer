@@ -26,5 +26,5 @@ void main() {
     vec3 mirrorDir = reflect(frag.viewDir, normal);
 
     vec3 envLookupDir = (envInfo.transform * vec4(mirrorDir, 0.0)).xyz;
-    outColor = tonemap(frag.color * texture(envCubemap, envLookupDir), camera.exposure);
+    outColor = tonemap(frag.color * texture(envCubemap, envLookupDir), camera);
 }

@@ -20,5 +20,5 @@ void main() {
     vec3 normal = getNormal(frag, materialConstants, normalMap, uv);
 
     float light = dot(normal, vec3(0,0,1)) * 0.5 + 0.5;
-    outColor = tonemap(vec4(frag.color.rgb * light, frag.color.a), camera.exposure);
+    outColor = tonemap(vec4(frag.color.rgb * light, frag.color.a), camera);
 }

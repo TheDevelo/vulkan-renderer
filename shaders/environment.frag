@@ -25,5 +25,5 @@ void main() {
     vec3 normal = getNormal(frag, materialConstants, normalMap, uv);
 
     vec3 envLookupDir = (envInfo.transform * vec4(normal, 0.0)).xyz;
-    outColor = tonemap(frag.color * texture(envCubemap, envLookupDir), camera.exposure);
+    outColor = tonemap(frag.color * texture(envCubemap, envLookupDir), camera);
 }

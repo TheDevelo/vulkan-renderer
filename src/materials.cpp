@@ -292,8 +292,8 @@ void MaterialPipelines::createRenderPasses(VkFormat solidImageFormat) {
         .attachment = 0,
         .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     };
-    if (options::isHeadless()) {
-        // If we're headless, then using PRESENT_SRC_KHR makes no sense. So just use COLOR_ATTACHMENT_OPTIMAL
+    if (options::isHeadless() || renderInstance->lightweight) {
+        // If we're headless/lightweight, then using PRESENT_SRC_KHR makes no sense. So just use COLOR_ATTACHMENT_OPTIMAL
         colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     }
 

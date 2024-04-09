@@ -47,5 +47,5 @@ void main() {
         totalLight += diffuseLightContribution(lights[i], shadowMaps[lights[i].shadowMapIndex], normal, frag.worldPos);
     }
 
-    outColor = tonemap(frag.color * diffuseColor * totalLight, camera.exposure);
+    outColor = tonemap(frag.color * diffuseColor * totalLight, camera);
 }

@@ -67,7 +67,7 @@ private:
         createCommandBuffers();
 
         createDepthImage();
-        createFramebuffers();
+        createFramebuffers(false);
 
         createSyncObjects();
 
@@ -80,7 +80,7 @@ private:
         });
     }
 
-    void createFramebuffers() {
+    void createFramebuffers(bool recreate) {
         // Create render target framebuffers
         renderTargetFramebuffers.resize(renderInstance->renderImageViews.size());
         for (size_t i = 0; i < renderInstance->renderImageViews.size(); i++) {
@@ -102,30 +102,32 @@ private:
             VK_ERR(vkCreateFramebuffer(renderInstance->device, &framebufferInfo, nullptr, &renderTargetFramebuffers[i]), "failed to create framebuffer!");
         }
 
-        // Create shadow map framebuffers
-        shadowMapFramebuffers.resize(scene.shadowMaps.size());
-        // Need to loop over the lights instead of the shadow map targets since we also need the size of the shadow maps
-        for (size_t i = 0; i < scene.lights.size(); i++) {
-            if (!scene.lights[i].info.useShadowMap) {
-                continue;
+        if (!recreate) {
+            // Create shadow map framebuffers
+            shadowMapFramebuffers.resize(scene.shadowMaps.size());
+            // Need to loop over the lights instead of the shadow map targets since we also need the size of the shadow maps
+            for (size_t i = 0; i < scene.lights.size(); i++) {
+                if (!scene.lights[i].info.useShadowMap) {
+                    continue;
+                }
+                size_t shadowMapIndex = scene.lights[i].info.shadowMapIndex;
+
+                std::array<VkImageView, 1> attachments = {
+                    scene.shadowMaps[shadowMapIndex].imageView,
+                };
+
+                VkFramebufferCreateInfo framebufferInfo {
+                    .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                    .renderPass = materialPipelines->shadowRenderPass,
+                    .attachmentCount = static_cast<uint32_t>(attachments.size()),
+                    .pAttachments = attachments.data(),
+                    .width = scene.lights[i].shadowMapSize,
+                    .height = scene.lights[i].shadowMapSize,
+                    .layers = 1,
+                };
+
+                VK_ERR(vkCreateFramebuffer(renderInstance->device, &framebufferInfo, nullptr, &shadowMapFramebuffers[shadowMapIndex]), "failed to create framebuffer!");
             }
-            size_t shadowMapIndex = scene.lights[i].info.shadowMapIndex;
-
-            std::array<VkImageView, 1> attachments = {
-                scene.shadowMaps[shadowMapIndex].imageView,
-            };
-
-            VkFramebufferCreateInfo framebufferInfo {
-                .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                .renderPass = materialPipelines->shadowRenderPass,
-                .attachmentCount = static_cast<uint32_t>(attachments.size()),
-                .pAttachments = attachments.data(),
-                .width = scene.lights[i].shadowMapSize,
-                .height = scene.lights[i].shadowMapSize,
-                .layers = 1,
-            };
-
-            VK_ERR(vkCreateFramebuffer(renderInstance->device, &framebufferInfo, nullptr, &shadowMapFramebuffers[shadowMapIndex]), "failed to create framebuffer!");
         }
     }
 
@@ -519,7 +521,7 @@ private:
         cleanupFramebuffers();
 
         createDepthImage();
-        createFramebuffers();
+        createFramebuffers(true);
     }
 
 public:

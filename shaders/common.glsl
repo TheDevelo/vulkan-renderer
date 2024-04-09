@@ -6,6 +6,7 @@ struct CameraInfo {
     mat4 proj;
     vec4 position;
     float exposure;
+    bool tonemap;
 };
 
 struct MaterialConstants {
@@ -67,14 +68,18 @@ struct VertexOutput {
 
 // Tonemapping operator is (an approximation of) the ACES Filmic curve
 // Formula from https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
-vec4 tonemap(vec4 linearColor, float exposure) {
+vec4 tonemap(vec4 linearColor, CameraInfo camera) {
+    if (!camera.tonemap) {
+        return linearColor;
+    }
+
     float a = 2.51f;
     float b = 0.03f;
     float c = 2.43f;
     float d = 0.59f;
     float e = 0.14f;
 
-    linearColor.rgb *= exposure; // Adjust the input color by the exposure level
+    linearColor.rgb *= camera.exposure; // Adjust the input color by the exposure level
     vec4 tonemappedColor = clamp((linearColor * (a * linearColor + b)) / (linearColor * (c * linearColor + d) + e), 0.0, 1.0);
     tonemappedColor.a = linearColor.a;
 

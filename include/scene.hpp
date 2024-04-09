@@ -21,6 +21,7 @@ struct alignas(256) CameraInfo {
     Mat4<float> proj;
     Vec4<float> position;
     float exposure;
+    alignas(4) bool tonemap;
 };
 
 // Environment information used in the uniforms.
@@ -255,6 +256,9 @@ public:
 
     CombinedBuffer const& getMaterialConstantsBuffer();
 
+    // Nodes are public for the local IBL utility's injection purpores
+    std::vector<Node> nodes;
+
     // Cameras are public so that the "outside" can change the selected camera
     uint32_t selectedCamera = 0;
     std::vector<Camera> cameras;
@@ -289,7 +293,6 @@ private:
     bool bboxInViewFrustum(Mat4<float> const& worldTransform, AxisAlignedBoundingBox const& bbox, CullingCamera const& cullingCamera);
 
     std::vector<uint32_t> sceneRoots;
-    std::vector<Node> nodes;
     std::vector<Mesh> meshes;
     std::vector<Driver> drivers;
     std::vector<CombinedBuffer> buffers;

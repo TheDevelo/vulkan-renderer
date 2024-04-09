@@ -82,5 +82,5 @@ void main() {
         totalSpecular += specularLightContribution(lights[i], shadowMaps[lights[i].shadowMapIndex], roughness, f0, normal, frag.viewDir, frag.worldPos);
     }
 
-    outColor = tonemap(frag.color * (totalDiffuse + totalSpecular), camera.exposure);
+    outColor = tonemap(frag.color * (totalDiffuse + totalSpecular), camera);
 }

@@ -214,6 +214,7 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
             cameraInfo.position = linear::mmul(node.transform, cameraInfo.position);
         }
     }
+    cameraInfo.tonemap = true;
 
     // Update our culling camera if we don't have debug camera on
     if (!useDebugCamera) {

@@ -157,14 +157,14 @@ public:
     float processEvents(); // Return value is time since last call to processEvents
     std::vector<RenderInstanceEvent> eventQueue;
 
+    // Determines whether we have a lightweight instance (one without a windowing system, whether real or headless)
+    bool lightweight;
+
     inline QueueFamilyIndices getQueueFamilies() {
         return findQueueFamilies(physicalDevice);
     };
 
 private:
-    // Determines whether we have a lightweight instance (one without a windowing system, whether real or headless)
-    bool lightweight;
-
     // Real window state
     GLFWwindow* window;
     VkSwapchainKHR swapChain;
