@@ -13,6 +13,12 @@
 #include "linear.hpp"
 #include "materials.hpp"
 
+// Container for a local-space axis-aligned bounding box. Represented by the corners with minimal XYZ and maximal XYZ
+struct AxisAlignedBoundingBox {
+    Vec3<float> minCorner;
+    Vec3<float> maxCorner;
+};
+
 // Camera information that gets used as uniforms for the shaders
 // Need to alignas(256), since uniform buffers must be aligned to some device limit.
 // It will always be a power of 2 and at most 256, so 256 is the safe choice
@@ -27,7 +33,9 @@ struct alignas(256) CameraInfo {
 // Environment information used in the uniforms.
 struct alignas(256) EnvironmentInfo {
     Mat4<float> transform;
+    AxisAlignedBoundingBox localBBox;
     uint32_t ggxMipLevels;
+    alignas(4) bool local;
     alignas(4) bool empty; // Used if we have a blank cubemap
 };
 
@@ -75,12 +83,6 @@ struct SceneRenderInfo {
 
     // Shadow mapping info
     uint32_t lightIndex;
-};
-
-// Container for a local-space axis-aligned bounding box. Represented by the corners with minimal XYZ and maximal XYZ
-struct AxisAlignedBoundingBox {
-    Vec3<float> minCorner;
-    Vec3<float> maxCorner;
 };
 
 // Scene class & container structs

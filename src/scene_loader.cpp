@@ -490,45 +490,96 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
     // Build a buffer containing a MaterialConstants for each material
     buildMaterialConstantsBuffer(renderInstance);
 
+    auto makeEmptyCubemap = [&]() {
+        std::unique_ptr<CombinedCubemap> cubemap = std::make_unique<CombinedCubemap>(renderInstance, 1, 1, 1, VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+        VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
+        transitionImageLayout(commandBuffer, cubemap->image, VK_FORMAT_R32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VkImageSubresourceRange {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 6,
+            });
+        endSingleUseCBuffer(*renderInstance, commandBuffer);
+
+        return cubemap;
+    };
+
     // Iterate through all the environments and construct their Environment representation
     environments.reserve(environmentIdMap.size());
     for (auto idPair : environmentIdMap) {
         uint32_t s72Id = idPair.first;
+        uint32_t arrId = idPair.second;
         json::object const& envObj = sceneArr[s72Id].as_obj();
 
         Environment env {
             .name = envObj.at("name").as_str(),
             .info = EnvironmentInfo {
                 .ggxMipLevels = 1,
+                .local = false,
                 .empty = false,
             },
         };
 
-        // Load the radiance map
-        PANIC_JSON_MISSING(envObj, "radiance", obj, "Scene loading error: environment does not contain a radiance map");
-        json::object const& radianceObj = envObj.at("radiance").as_obj();
-        std::filesystem::path filePath = loadTextureObj(radianceObj, "cube");
-        env.radiance = loadCubemap(renderInstance, filePath.string());
-
-        // Load the pre-integrated Lambertian cubemap
-        std::filesystem::path lambertianPath = filePath;
-        lambertianPath.replace_extension(".lambertian.png");
-        env.lambertian = loadCubemap(renderInstance, lambertianPath.string());
-
-        // Load the GGX cubemap stack (with the standard environment as level 0)
-        while (true) {
-            std::filesystem::path ggxMipmapPath = filePath;
-            ggxMipmapPath.replace_extension(string_format(".ggx%u.png", env.info.ggxMipLevels));
-            if (!std::filesystem::exists(ggxMipmapPath)) {
-                break;
-            }
-            env.info.ggxMipLevels += 1;
+        // Get the appropriate environment filepath based on local vs. global
+        std::filesystem::path filePath;
+        if (envObj.contains("radiance")) {
+            PANIC_JSON_MISSING(envObj, "radiance", obj, "Scene loading error: environment does not contain a radiance map");
+            json::object const& radianceObj = envObj.at("radiance").as_obj();
+            filePath = loadTextureObj(radianceObj, "cube");
         }
-        env.ggx = loadCubemap(renderInstance, filePath.string(), env.info.ggxMipLevels);
-        for (uint32_t mipLevel = 1; mipLevel < env.info.ggxMipLevels; mipLevel++) {
-            std::filesystem::path ggxMipmapPath = filePath;
-            ggxMipmapPath.replace_extension(string_format(".ggx%u.png", mipLevel));
-            loadMipmapIntoCubemap(renderInstance, *env.ggx, ggxMipmapPath.string(), mipLevel);
+        else if (envObj.contains("local")) {
+            env.info.local = true;
+
+            filePath = std::filesystem::absolute(filename);
+            filePath.replace_extension(string_format(".localIBL_%d.png", arrId));
+
+            // Also set the local environment's bounding box
+            PANIC_JSON_MISSING(envObj, "local", obj, "Scene loading error: environment's local properties is not an object");
+            json::object const& localObj = envObj.at("local").as_obj();
+            PANIC_JSON_MISSING(localObj, "minCorner", vec3f, "Scene loading error: local environment is missing bounding box");
+            PANIC_JSON_MISSING(localObj, "maxCorner", vec3f, "Scene loading error: local environment is missing bounding box");
+
+            env.info.localBBox.minCorner = localObj.at("minCorner").as_vec3f();
+            env.info.localBBox.maxCorner = localObj.at("maxCorner").as_vec3f();
+        }
+
+
+        // Check if we have the environment maps specified
+        if (std::filesystem::exists(filePath)) {
+            // Load the radiance map
+            env.radiance = loadCubemap(renderInstance, filePath.string());
+
+            // Load the pre-integrated Lambertian cubemap
+            std::filesystem::path lambertianPath = filePath;
+            lambertianPath.replace_extension(".lambertian.png");
+            env.lambertian = loadCubemap(renderInstance, lambertianPath.string());
+
+            // Load the GGX cubemap stack (with the standard environment as level 0)
+            while (true) {
+                std::filesystem::path ggxMipmapPath = filePath;
+                ggxMipmapPath.replace_extension(string_format(".ggx%u.png", env.info.ggxMipLevels));
+                if (!std::filesystem::exists(ggxMipmapPath)) {
+                    break;
+                }
+                env.info.ggxMipLevels += 1;
+            }
+            env.ggx = loadCubemap(renderInstance, filePath.string(), env.info.ggxMipLevels);
+            for (uint32_t mipLevel = 1; mipLevel < env.info.ggxMipLevels; mipLevel++) {
+                std::filesystem::path ggxMipmapPath = filePath;
+                ggxMipmapPath.replace_extension(string_format(".ggx%u.png", mipLevel));
+                loadMipmapIntoCubemap(renderInstance, *env.ggx, ggxMipmapPath.string(), mipLevel);
+            }
+        }
+        else if (env.info.local) {
+            // Local cubemaps haven't been pre-rendered yet, so just make the environment empty
+            env.info.empty = true;
+            env.radiance = makeEmptyCubemap();
+        }
+        else {
+            // Global environment maps should always have a radiance map
+            PANIC("Scene loading error: environment's specified radiance map does not exist");
         }
 
         environments.push_back(std::move(env));
@@ -540,21 +591,11 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             .name = "EmptyEnv",
             .ancestors = { 0 },
             .info = EnvironmentInfo {
+                .local = false,
                 .empty = true
             },
         };
-
-        env.radiance = std::make_unique<CombinedCubemap>(renderInstance, 1, 1, 1, VK_FORMAT_R32_SFLOAT, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-
-        VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);
-        transitionImageLayout(commandBuffer, env.radiance->image, VK_FORMAT_R32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VkImageSubresourceRange {
-                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 6,
-            });
-        endSingleUseCBuffer(*renderInstance, commandBuffer);
+        env.radiance = makeEmptyCubemap();
 
         environments.push_back(std::move(env));
     }

@@ -241,7 +241,10 @@ private:
         drawShadowMaps();
 
         for (size_t i = 0; i < scene.environments.size(); i++) {
-            // (TODO when I have global vs local envs) Skip any global environments
+            // Skip any global environments
+            if (!scene.environments[i].info.local) {
+                continue;
+            }
 
             for (uint32_t f = 0; f < 6; f++) {
                 // Update the camera ancestory to point to our current environment
@@ -261,9 +264,11 @@ private:
         vkMapMemory(renderInstance->device, copyBuffer.bufferMemory, 0, copyBufferSize, 0, (void**) &copyBufferMem);
         std::vector<float> flippedCube(cubeSize * cubeSize * 6 * 4);
 
-        // TODO: Save the local IBL cubemaps to file
         for (size_t i = 0; i < scene.environments.size(); i++) {
-            // (TODO when I have global vs local envs) Skip any global environments
+            // Skip any global environments
+            if (!scene.environments[i].info.local) {
+                continue;
+            }
 
             // Copy cubemap to the copy buffer
             VkCommandBuffer commandBuffer = beginSingleUseCBuffer(*renderInstance);

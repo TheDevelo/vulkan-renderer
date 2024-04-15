@@ -20,9 +20,16 @@ struct MaterialConstants {
     bool useMetalnessMap;
 };
 
+struct AABB {
+    vec3 minCorner;
+    vec3 maxCorner;
+};
+
 struct EnvironmentInfo {
     mat4 transform;
+    AABB localBBox;
     uint ggxMipLevels;
+    bool isLocal;
     bool isEmpty;
 };
 
