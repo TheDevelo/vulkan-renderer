@@ -12,7 +12,7 @@ layout(set = 1, binding = 1) uniform sampler2D normalMap;
 layout(set = 1, binding = 2) uniform sampler2D displacementMap;
 layout(set = 1, binding = 3) uniform sampler2D albedoMap;
 
-layout(set = 2, binding = 0) uniform EnvironmentInfoUBO {
+layout(scalar, set = 2, binding = 0) uniform EnvironmentInfoUBO {
     EnvironmentInfo envInfo;
 };
 layout(set = 2, binding = 2) uniform samplerCube lambertianCubemap;

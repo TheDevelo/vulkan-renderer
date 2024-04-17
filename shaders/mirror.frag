@@ -11,7 +11,7 @@ layout(set = 1, binding = 0) uniform MaterialConstantsUBO {
 layout(set = 1, binding = 1) uniform sampler2D normalMap;
 layout(set = 1, binding = 2) uniform sampler2D displacementMap;
 
-layout(set = 2, binding = 0) uniform EnvironmentInfoUBO {
+layout(scalar, set = 2, binding = 0) uniform EnvironmentInfoUBO {
     EnvironmentInfo envInfo;
 };
 layout(set = 2, binding = 1) uniform samplerCube envCubemap;
@@ -25,6 +25,6 @@ void main() {
     vec3 normal = getNormal(frag, materialConstants, normalMap, uv);
     vec3 mirrorDir = reflect(frag.viewDir, normal);
 
-    vec3 envLookupDir = (envInfo.transform * vec4(mirrorDir, 0.0)).xyz;
+    vec3 envLookupDir = parallaxEnvDir(envInfo, frag.worldPos, mirrorDir);
     outColor = tonemap(frag.color * texture(envCubemap, envLookupDir), camera);
 }

@@ -1,5 +1,6 @@
 #define PI 3.14159265358979323846264338327950288
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : require
 
 struct CameraInfo {
     mat4 view;
@@ -134,6 +135,39 @@ vec3 getNormal(VertexOutput frag, MaterialConstants materialConstants, sampler2D
     else {
         return normalize(frag.normal);
     }
+}
+
+// Parallax correct the environment map lookup direction using the environment's bounding box
+// This only applies for specular IBL, since the lambertian cubemap does not make sense for parallax correction
+// NOTE: this also handles the mirror plane case, but for that we pre-distort the cubemap, so the lookup direction stays the same
+vec3 parallaxEnvDir(EnvironmentInfo env, vec4 worldPosition, vec3 worldDirection) {
+    vec3 direction = (env.transform * vec4(worldDirection, 0.0)).xyz;
+    vec3 position = (env.transform * worldPosition).xyz;
+    if (!env.isLocal) {
+        // Global environment maps should not be parallax corrected.
+        return direction;
+    }
+
+    // Determine the first point of intersection on the cube's bounding box
+    // Note that we only need to check 3 planes as the other 3 are opposite of where direction points (assuming position is in the box)
+    vec3 bboxPlanes = env.localBBox.minCorner;
+    if (direction.x > 0) {
+        bboxPlanes.x = env.localBBox.maxCorner.x;
+    }
+    if (direction.y > 0) {
+        bboxPlanes.y = env.localBBox.maxCorner.y;
+    }
+    if (direction.z > 0) {
+        bboxPlanes.z = env.localBBox.maxCorner.z;
+    }
+
+    float xIntersectionT = (bboxPlanes.x - position.x) / direction.x;
+    float yIntersectionT = (bboxPlanes.y - position.y) / direction.y;
+    float zIntersectionT = (bboxPlanes.z - position.z) / direction.z;
+
+    // Get the intersection point using the minimum intersection time
+    vec3 hitPosition = min(min(xIntersectionT, yIntersectionT), zIntersectionT) * direction + position;
+    return normalize(hitPosition);
 }
 
 // GGX BRDF derived from Epic's 2013 SIGGRAPH PBR course notes

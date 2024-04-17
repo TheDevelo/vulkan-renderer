@@ -15,7 +15,7 @@ layout(set = 1, binding = 3) uniform sampler2D albedoMap;
 layout(set = 1, binding = 4) uniform sampler2D roughnessMap;
 layout(set = 1, binding = 5) uniform sampler2D metalnessMap;
 
-layout(set = 2, binding = 0) uniform EnvironmentInfoUBO {
+layout(scalar, set = 2, binding = 0) uniform EnvironmentInfoUBO {
     EnvironmentInfo envInfo;
 };
 layout(set = 2, binding = 2) uniform samplerCube lambertianCubemap;
@@ -69,7 +69,7 @@ void main() {
 
     vec3 mirrorDir = reflect(frag.viewDir, normal);
     vec3 diffuseLookupDir = (envInfo.transform * vec4(normal, 0.0)).xyz;
-    vec3 specularLookupDir = (envInfo.transform * vec4(mirrorDir, 0.0)).xyz;
+    vec3 specularLookupDir = parallaxEnvDir(envInfo, frag.worldPos, mirrorDir);
 
     // Calculate the specular and diffuse radiances for our environment
     vec4 totalDiffuse = albedo * (1 - metalness) * texture(lambertianCubemap, diffuseLookupDir);
