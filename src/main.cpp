@@ -5,6 +5,7 @@
 #include <chrono>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -48,6 +49,10 @@ private:
     std::unique_ptr<CombinedImage> depthImage;
     std::vector<VkFramebuffer> renderTargetFramebuffers;
     std::vector<VkFramebuffer> shadowMapFramebuffers;
+
+    std::vector<VkFramebuffer> envFramebuffers;
+    std::vector<VkImageView> envImageViews;
+    std::map<uint32_t, uint32_t> envFramebufferStartIndex;
 
     std::vector<VkCommandBuffer> commandBuffers;
 
@@ -127,6 +132,74 @@ private:
                 };
 
                 VK_ERR(vkCreateFramebuffer(renderInstance->device, &framebufferInfo, nullptr, &shadowMapFramebuffers[shadowMapIndex]), "failed to create framebuffer!");
+            }
+
+            // Create the framebuffers and image views for our parallaxed GGX stacks with mirror local environments
+            uint32_t envFramebuffersNeeded = 0;
+            for (uint32_t i = 0; i < scene.environments.size(); i++) {
+                if (scene.environments[i].info.type == 2) {
+                    envFramebufferStartIndex.insert_or_assign(i, envFramebuffersNeeded);
+                    envFramebuffersNeeded += scene.environments[i].info.ggxMipLevels * 6;
+                }
+            }
+
+            envFramebuffers.resize(envFramebuffersNeeded);
+            envImageViews.resize(envFramebuffersNeeded);
+            for (uint32_t i = 0; i < scene.environments.size(); i++) {
+                if (scene.environments[i].info.empty || scene.environments[i].info.type != 2) {
+                    continue;
+                }
+
+                uint32_t startIndex = envFramebufferStartIndex[i];
+                uint32_t width = scene.environments[i].ggx->width;
+                uint32_t height = scene.environments[i].ggx->height;
+                for (uint32_t mipLevel = 0; mipLevel < scene.environments[i].info.ggxMipLevels; mipLevel++) {
+                    for (uint32_t f = 0; f < 6; f++) {
+                        uint32_t index = startIndex + mipLevel * 6 + f;
+
+                        // Create the image view to the specific face and mipmap
+                        VkImageViewCreateInfo imageViewCreateInfo {
+                            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                            .image = scene.environments[i].ggx->image,
+                            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+                            .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+                            .components = VkComponentMapping {
+                                .r = VK_COMPONENT_SWIZZLE_IDENTITY,
+                                .g = VK_COMPONENT_SWIZZLE_IDENTITY,
+                                .b = VK_COMPONENT_SWIZZLE_IDENTITY,
+                                .a = VK_COMPONENT_SWIZZLE_IDENTITY,
+                            },
+                            .subresourceRange = VkImageSubresourceRange {
+                                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                .baseMipLevel = mipLevel,
+                                .levelCount = 1,
+                                .baseArrayLayer = f,
+                                .layerCount = 1,
+                            },
+                        };
+                        VK_ERR(vkCreateImageView(renderInstance->device, &imageViewCreateInfo, nullptr, &envImageViews[index]), "failed to create image view!");
+
+                        // Create the associated framebuffer
+                        std::array<VkImageView, 1> attachments = {
+                            envImageViews[index],
+                        };
+
+                        // TODO: SET RENDER PASS PROPERLY ONCE WE MAKE THE RENDER PASS
+                        VkFramebufferCreateInfo framebufferInfo {
+                            .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                            .renderPass = materialPipelines->solidRenderPass,
+                            .attachmentCount = static_cast<uint32_t>(attachments.size()),
+                            .pAttachments = attachments.data(),
+                            .width = width,
+                            .height = height,
+                            .layers = 1,
+                        };
+
+                        VK_ERR(vkCreateFramebuffer(renderInstance->device, &framebufferInfo, nullptr, &envFramebuffers[index]), "failed to create framebuffer!");
+                    }
+                    width /= 2;
+                    height /= 2;
+                }
             }
         }
     }
@@ -271,7 +344,6 @@ private:
 
             // Draw the frame
             drawFrame();
-
 
             // Update frameTime
             std::chrono::system_clock::time_point endTime = std::chrono::high_resolution_clock::now();
@@ -538,6 +610,13 @@ public:
 
         for (VkFramebuffer framebuffer : shadowMapFramebuffers) {
             vkDestroyFramebuffer(renderInstance->device, framebuffer, nullptr);
+        }
+
+        for (VkFramebuffer framebuffer : envFramebuffers) {
+            vkDestroyFramebuffer(renderInstance->device, framebuffer, nullptr);
+        }
+        for (VkImageView view : envImageViews) {
+            vkDestroyImageView(renderInstance->device, view, nullptr);
         }
     }
 

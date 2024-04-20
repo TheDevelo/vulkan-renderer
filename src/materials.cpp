@@ -88,7 +88,7 @@ void MaterialPipelines::createDescriptorSetLayouts(Scene const& scene) {
     VK_ERR(vkCreateDescriptorSetLayout(renderInstance->device, &cameraInfoLayoutInfo, nullptr, &cameraInfoLayout), "failed to create descriptor set layout!");
 
     // Environment Descriptor Layout
-    std::array<VkDescriptorSetLayoutBinding, 4> environmentBindings = {{
+    std::array<VkDescriptorSetLayoutBinding, 5> environmentBindings = {{
         {
             .binding = 0,
             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
@@ -112,6 +112,13 @@ void MaterialPipelines::createDescriptorSetLayouts(Scene const& scene) {
         },
         {
             .binding = 3,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr,
+        },
+        {
+            .binding = 4,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,

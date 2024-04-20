@@ -517,7 +517,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             .name = envObj.at("name").as_str(),
             .info = EnvironmentInfo {
                 .ggxMipLevels = 1,
-                .local = false,
+                .type = 0,
                 .empty = false,
             },
         };
@@ -530,19 +530,30 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             filePath = loadTextureObj(radianceObj, "cube");
         }
         else if (envObj.contains("local")) {
-            env.info.local = true;
-
             filePath = std::filesystem::absolute(filename);
             filePath.replace_extension(string_format(".localIBL_%d.png", arrId));
 
             // Also set the local environment's bounding box
             PANIC_JSON_MISSING(envObj, "local", obj, "Scene loading error: environment's local properties is not an object");
             json::object const& localObj = envObj.at("local").as_obj();
-            PANIC_JSON_MISSING(localObj, "minCorner", vec3f, "Scene loading error: local environment is missing bounding box");
-            PANIC_JSON_MISSING(localObj, "maxCorner", vec3f, "Scene loading error: local environment is missing bounding box");
 
-            env.info.localBBox.minCorner = localObj.at("minCorner").as_vec3f();
-            env.info.localBBox.maxCorner = localObj.at("maxCorner").as_vec3f();
+            // Set appropriate fields based on type of local environment
+            if (localObj.contains("minCorner")) {
+                PANIC_JSON_MISSING(localObj, "minCorner", vec3f, "Scene loading error: local environment is missing bounding box");
+                PANIC_JSON_MISSING(localObj, "maxCorner", vec3f, "Scene loading error: local environment is missing bounding box");
+
+                env.info.type = 1;
+                env.info.localBBox.minCorner = localObj.at("minCorner").as_vec3f();
+                env.info.localBBox.maxCorner = localObj.at("maxCorner").as_vec3f();
+            }
+            else if (localObj.contains("mesh")) {
+                PANIC_JSON_MISSING(localObj, "mesh", num, "Scene loading error: local environment is missing mesh index");
+                PANIC_JSON_MISSING(localObj, "distance", num, "Scene loading error: local environment is missing reflection distance");
+
+                env.info.type = 2;
+                env.info.mirrorDist = localObj.at("distance").as_num();
+                env.meshIndex = localObj.at("mesh").as_num();
+            }
         }
 
 
@@ -571,8 +582,15 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
                 ggxMipmapPath.replace_extension(string_format(".ggx%u.png", mipLevel));
                 loadMipmapIntoCubemap(renderInstance, *env.ggx, ggxMipmapPath.string(), mipLevel);
             }
+
+            // If we have a mirror local environment, create a blank copy of the GGX cubemap stack
+            if (env.info.type == 2) {
+                env.parallaxedGGX = std::move(env.ggx);
+                env.ggx = std::make_unique<CombinedCubemap>(renderInstance, env.parallaxedGGX->width, env.parallaxedGGX->height, env.parallaxedGGX->mipLevels, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                                           VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            }
         }
-        else if (env.info.local) {
+        else if (env.info.type == 1 || env.info.type == 2) {
             // Local cubemaps haven't been pre-rendered yet, so just make the environment empty
             env.info.empty = true;
             env.radiance = makeEmptyCubemap();
@@ -591,7 +609,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
             .name = "EmptyEnv",
             .ancestors = { 0 },
             .info = EnvironmentInfo {
-                .local = false,
+                .type = 0,
                 .empty = true
             },
         };

@@ -242,7 +242,7 @@ private:
 
         for (size_t i = 0; i < scene.environments.size(); i++) {
             // Skip any global environments
-            if (!scene.environments[i].info.local) {
+            if (scene.environments[i].info.type == 0) {
                 continue;
             }
 
@@ -266,7 +266,7 @@ private:
 
         for (size_t i = 0; i < scene.environments.size(); i++) {
             // Skip any global environments
-            if (!scene.environments[i].info.local) {
+            if (scene.environments[i].info.type == 0) {
                 continue;
             }
 

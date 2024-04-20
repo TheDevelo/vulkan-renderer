@@ -126,8 +126,9 @@ CombinedImage::CombinedImage(CombinedImage&& src) {
 // =============================================================================
 // CombinedCubemap
 // =============================================================================
-CombinedCubemap::CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstanceIn, uint32_t width, uint32_t height, uint32_t mipLevels,
-                                 VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImageAspectFlags aspectFlags) : renderInstance(renderInstanceIn) {
+CombinedCubemap::CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstanceIn, uint32_t widthIn, uint32_t heightIn, uint32_t mipLevelsIn,
+                                 VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImageAspectFlags aspectFlags)
+        : width(widthIn), height(heightIn), mipLevels(mipLevelsIn), renderInstance(renderInstanceIn) {
     VkImageCreateInfo imageInfo {
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,

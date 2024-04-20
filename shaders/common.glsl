@@ -30,7 +30,8 @@ struct EnvironmentInfo {
     mat4 transform;
     AABB localBBox;
     uint ggxMipLevels;
-    bool isLocal;
+    uint type; // 0 = Global, 1 = BBox Local, 2 = Mirror Local
+    float mirrorDist;
     bool isEmpty;
 };
 
@@ -139,12 +140,12 @@ vec3 getNormal(VertexOutput frag, MaterialConstants materialConstants, sampler2D
 
 // Parallax correct the environment map lookup direction using the environment's bounding box
 // This only applies for specular IBL, since the lambertian cubemap does not make sense for parallax correction
-// NOTE: this also handles the mirror plane case, but for that we pre-distort the cubemap, so the lookup direction stays the same
 vec3 parallaxEnvDir(EnvironmentInfo env, vec4 worldPosition, vec3 worldDirection) {
     vec3 direction = (env.transform * vec4(worldDirection, 0.0)).xyz;
     vec3 position = (env.transform * worldPosition).xyz;
-    if (!env.isLocal) {
+    if (env.type == 0 || env.type == 2) {
         // Global environment maps should not be parallax corrected.
+        // Similarly, the mirror environment maps are pre-parallax corrected, so we don't need to modify the direction
         return direction;
     }
 

@@ -138,7 +138,7 @@ void Descriptors::createDescriptorSets(Scene& scene, MaterialPipelines const& ma
     uint32_t uniformDescs = simpleEnvMirrorDescs + lambertianDescs + pbrDescs;
     uint32_t dynamicUniformDescs = cameraDescs + environmentDescs;
     uint32_t dynamicStorageDescs = lightDescs;
-    uint32_t combinedImageSamplerDescs = cameraDescs + 3 * environmentDescs + 2 * simpleEnvMirrorDescs + 3 * lambertianDescs + 5 * pbrDescs + shadowMapDescs;
+    uint32_t combinedImageSamplerDescs = cameraDescs + 4 * environmentDescs + 2 * simpleEnvMirrorDescs + 3 * lambertianDescs + 5 * pbrDescs + shadowMapDescs;
 
     // Create the descriptor pool
     // NOTE: Each type needs at least 1 descriptor to allocate, or else we get an error
@@ -299,9 +299,20 @@ void Descriptors::createDescriptorSets(Scene& scene, MaterialPipelines const& ma
             .imageView = scene.environments[i].radiance->imageView,
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         });
+        VkDescriptorImageInfo& ggxUnwarpedInfo = imageWrites.emplace_back(VkDescriptorImageInfo {
+            .sampler = repeatingSampler,
+            .imageView = scene.environments[i].radiance->imageView,
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        });
         if (!scene.environments[i].info.empty) {
             lambertianInfo.imageView = scene.environments[i].lambertian->imageView;
             ggxInfo.imageView = scene.environments[i].ggx->imageView;
+            ggxUnwarpedInfo.imageView = scene.environments[i].ggx->imageView;
+
+            if (scene.environments[i].info.type == 2) {
+                // Mirror Local Environment, so we should have the ggx environment point to the warped version
+                ggxInfo.imageView = scene.environments[i].parallaxedGGX->imageView;
+            }
         }
 
         descriptorWrites.emplace_back(VkWriteDescriptorSet {
@@ -339,6 +350,15 @@ void Descriptors::createDescriptorSets(Scene& scene, MaterialPipelines const& ma
             .descriptorCount = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .pImageInfo = &ggxInfo,
+        });
+        descriptorWrites.emplace_back(VkWriteDescriptorSet {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = envDescriptorSets[i],
+            .dstBinding = 4,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = &ggxUnwarpedInfo,
         });
 
         scene.environments[i].descriptorSet = envDescriptorSets[i];

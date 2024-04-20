@@ -44,7 +44,11 @@ public:
     VkDeviceMemory imageMemory;
     VkImageView imageView;
 
-    CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstanceIn, uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImageAspectFlags aspectFlags);
+    uint32_t width;
+    uint32_t height;
+    uint32_t mipLevels;
+
+    CombinedCubemap(std::shared_ptr<RenderInstance>& renderInstanceIn, uint32_t widthIn, uint32_t heightIn, uint32_t mipLevelsIn, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memProps, VkImageAspectFlags aspectFlags);
     ~CombinedCubemap();
     CombinedCubemap(const CombinedCubemap&) = delete; // Disable copy constructor
     CombinedCubemap(CombinedCubemap&& src);

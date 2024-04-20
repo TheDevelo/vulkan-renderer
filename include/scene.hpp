@@ -35,7 +35,8 @@ struct alignas(256) EnvironmentInfo {
     Mat4<float> transform;
     AxisAlignedBoundingBox localBBox;
     uint32_t ggxMipLevels;
-    alignas(4) bool local;
+    uint32_t type; // 0 = Global, 1 = BBox Local, 2 = Mirror Local
+    float mirrorDist; // (Signed) distance of mirror plane along local -z axis
     alignas(4) bool empty; // Used if we have a blank cubemap
 };
 
@@ -208,6 +209,10 @@ struct Environment {
     std::vector<uint32_t> ancestors;
     EnvironmentInfo info;
     VkDescriptorSet descriptorSet;
+
+    // Information for mirror local environments
+    std::unique_ptr<CombinedCubemap> parallaxedGGX;
+    uint32_t meshIndex;
 };
 
 // Unlike other node-instanced attachments, we have a Light copy for each instance
