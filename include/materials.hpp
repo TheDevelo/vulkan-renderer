@@ -19,6 +19,7 @@ public:
     // Render Passes
     VkRenderPass solidRenderPass;
     VkRenderPass shadowRenderPass;
+    VkRenderPass mirrorLocalRenderPass;
 
     // Pipelines for each material + the shadow map
     VkPipeline simplePipeline;
@@ -27,6 +28,7 @@ public:
     VkPipeline lambertianPipeline;
     VkPipeline pbrPipeline;
     VkPipeline shadowPipeline;
+    VkPipeline mirrorLocalPipeline;
 
     // Pipeline layouts
     VkPipelineLayout simplePipelineLayout;
@@ -34,6 +36,7 @@ public:
     VkPipelineLayout lambertianPipelineLayout;
     VkPipelineLayout pbrPipelineLayout;
     VkPipelineLayout shadowPipelineLayout;
+    VkPipelineLayout mirrorLocalPipelineLayout;
 
     // Descriptor set layouts
     VkDescriptorSetLayout cameraInfoLayout;

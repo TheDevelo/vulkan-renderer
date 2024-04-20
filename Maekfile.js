@@ -30,6 +30,8 @@ const shaders = [
 	maek.GLSLC('shaders/lambertian.frag'),
 	maek.GLSLC('shaders/pbr.frag'),
 	maek.GLSLC('shaders/shadow.vert'),
+	maek.GLSLC('shaders/mirrorLocal.vert'),
+	maek.GLSLC('shaders/mirrorLocal.frag'),
 ];
 
 //set default targets to build (can be overridden by command line options):

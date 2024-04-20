@@ -184,10 +184,9 @@ private:
                             envImageViews[index],
                         };
 
-                        // TODO: SET RENDER PASS PROPERLY ONCE WE MAKE THE RENDER PASS
                         VkFramebufferCreateInfo framebufferInfo {
                             .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                            .renderPass = materialPipelines->solidRenderPass,
+                            .renderPass = materialPipelines->mirrorLocalRenderPass,
                             .attachmentCount = static_cast<uint32_t>(attachments.size()),
                             .pAttachments = attachments.data(),
                             .width = width,

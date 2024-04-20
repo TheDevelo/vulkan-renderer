@@ -30,6 +30,12 @@ const uint32_t pbrFragShaderArray[] =
 const uint32_t shadowVertShaderArray[] =
 #include "shaders/shadow.vert.inl"
 ;
+const uint32_t mirrorLocalVertShaderArray[] =
+#include "shaders/mirrorLocal.vert.inl"
+;
+const uint32_t mirrorLocalFragShaderArray[] =
+#include "shaders/mirrorLocal.frag.inl"
+;
 
 MaterialPipelines::MaterialPipelines(std::shared_ptr<RenderInstance> renderInstanceIn, Scene const& scene, VkFormat solidImageFormat) : renderInstance(renderInstanceIn) {
     createDescriptorSetLayouts(scene);
@@ -44,12 +50,14 @@ MaterialPipelines::~MaterialPipelines() {
     vkDestroyPipeline(renderInstance->device, lambertianPipeline, nullptr);
     vkDestroyPipeline(renderInstance->device, pbrPipeline, nullptr);
     vkDestroyPipeline(renderInstance->device, shadowPipeline, nullptr);
+    vkDestroyPipeline(renderInstance->device, mirrorLocalPipeline, nullptr);
 
     vkDestroyPipelineLayout(renderInstance->device, simplePipelineLayout, nullptr);
     vkDestroyPipelineLayout(renderInstance->device, envMirrorPipelineLayout, nullptr);
     vkDestroyPipelineLayout(renderInstance->device, lambertianPipelineLayout, nullptr);
     vkDestroyPipelineLayout(renderInstance->device, pbrPipelineLayout, nullptr);
     vkDestroyPipelineLayout(renderInstance->device, shadowPipelineLayout, nullptr);
+    vkDestroyPipelineLayout(renderInstance->device, mirrorLocalPipelineLayout, nullptr);
 
     vkDestroyDescriptorSetLayout(renderInstance->device, cameraInfoLayout, nullptr);
     vkDestroyDescriptorSetLayout(renderInstance->device, environmentLayout, nullptr);
@@ -60,6 +68,7 @@ MaterialPipelines::~MaterialPipelines() {
 
     vkDestroyRenderPass(renderInstance->device, solidRenderPass, nullptr);
     vkDestroyRenderPass(renderInstance->device, shadowRenderPass, nullptr);
+    vkDestroyRenderPass(renderInstance->device, mirrorLocalRenderPass, nullptr);
 }
 
 void MaterialPipelines::createDescriptorSetLayouts(Scene const& scene) {
@@ -93,7 +102,7 @@ void MaterialPipelines::createDescriptorSetLayouts(Scene const& scene) {
             .binding = 0,
             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
             .pImmutableSamplers = nullptr,
         },
         {
@@ -382,6 +391,39 @@ void MaterialPipelines::createRenderPasses(VkFormat solidImageFormat) {
     };
 
     VK_ERR(vkCreateRenderPass(renderInstance->device, &shadowRenderPassInfo, nullptr, &shadowRenderPass), "failed to create render pass!");
+
+    // Create the render pass for warping mirror local environments
+    VkAttachmentDescription envSideAttachment {
+        .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    };
+    VkAttachmentReference envSideAttachmentRef {
+        .attachment = 0,
+        .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    };
+
+    VkSubpassDescription mirrorLocalSubpassDesc {
+        .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &envSideAttachmentRef,
+    };
+
+    std::array<VkAttachmentDescription, 1> mirrorLocalAttachments = { envSideAttachment };
+    VkRenderPassCreateInfo mirrorLocalRenderPassInfo {
+        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = static_cast<uint32_t>(mirrorLocalAttachments.size()),
+        .pAttachments = mirrorLocalAttachments.data(),
+        .subpassCount = 1,
+        .pSubpasses = &mirrorLocalSubpassDesc,
+    };
+
+    VK_ERR(vkCreateRenderPass(renderInstance->device, &mirrorLocalRenderPassInfo, nullptr, &mirrorLocalRenderPass), "failed to create render pass!");
 }
 
 // Helper to create a shader module from a SPIRV array
@@ -435,16 +477,9 @@ void MaterialPipelines::createPipelines() {
         .depthBoundsTestEnable = VK_FALSE,
         .stencilTestEnable = VK_FALSE,
     };
-    // Push constants are small amounts of data we can directly upload through the command buffer
-    // This push constant will be used to upload model transforms for each object
-    VkPushConstantRange modelPushConstantInfo {
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-        .offset = 0,
-        .size = sizeof(Mat4<float>),
-    };
 
     // =========================================================================
-    // Setup attributes shared between each solid pipeline
+    // Setup attributes shared between each solid pipeline & the mirror local pipeline
     // =========================================================================
 
     // Dynamic states deal with what we can change after pipeline creation.
@@ -485,6 +520,27 @@ void MaterialPipelines::createPipelines() {
         .logicOpEnable = VK_FALSE,
         .attachmentCount = 1,
         .pAttachments = &colorBlendAttachment,
+    };
+
+    // Push constants are small amounts of data we can directly upload through the command buffer
+    // =============================
+    // Solid pipeline push constants
+    // =============================
+    // This push constant will be used to upload model transforms for each object
+    VkPushConstantRange modelPushConstantInfo {
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+        .offset = 0,
+        .size = sizeof(Mat4<float>),
+    };
+
+    // =============================
+    // Mirror local push constants
+    // =============================
+    // This push constant will be used to tell what face and mipmap level to render
+    VkPushConstantRange mirrorLocalPushConstantInfo {
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        .offset = 0,
+        .size = 2 * sizeof(uint32_t),
     };
 
     // =========================================================================
@@ -569,6 +625,16 @@ void MaterialPipelines::createPipelines() {
     };
     VK_ERR(vkCreatePipelineLayout(renderInstance->device, &shadowPipelineLayoutInfo, nullptr, &shadowPipelineLayout), "failed to create pipeline layout!");
 
+    std::array<VkDescriptorSetLayout, 2> mirrorLocalLayouts = { cameraInfoLayout, environmentLayout };
+    VkPipelineLayoutCreateInfo mirrorLocalPipelineLayoutInfo {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = mirrorLocalLayouts.size(),
+        .pSetLayouts = mirrorLocalLayouts.data(),
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges = &mirrorLocalPushConstantInfo,
+    };
+    VK_ERR(vkCreatePipelineLayout(renderInstance->device, &mirrorLocalPipelineLayoutInfo, nullptr, &mirrorLocalPipelineLayout), "failed to create pipeline layout!");
+
     // =========================================================================
     // Create the render pipelines
     // =========================================================================
@@ -581,6 +647,8 @@ void MaterialPipelines::createPipelines() {
     VkShaderModule lambertianFragShaderModule = createShaderModule(*renderInstance, lambertianFragShaderArray, sizeof(lambertianFragShaderArray));
     VkShaderModule pbrFragShaderModule = createShaderModule(*renderInstance, pbrFragShaderArray, sizeof(pbrFragShaderArray));
     VkShaderModule shadowVertShaderModule = createShaderModule(*renderInstance, shadowVertShaderArray, sizeof(shadowVertShaderArray));
+    VkShaderModule mirrorLocalVertShaderModule = createShaderModule(*renderInstance, mirrorLocalVertShaderArray, sizeof(mirrorLocalVertShaderArray));
+    VkShaderModule mirrorLocalFragShaderModule = createShaderModule(*renderInstance, mirrorLocalFragShaderArray, sizeof(mirrorLocalFragShaderArray));
 
     // Create the shader stages for our pipeline
     VkPipelineShaderStageCreateInfo vertShaderInfo {
@@ -625,12 +693,25 @@ void MaterialPipelines::createPipelines() {
         .module = shadowVertShaderModule,
         .pName = "main",
     };
+    VkPipelineShaderStageCreateInfo mirrorLocalVertShaderInfo {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_VERTEX_BIT,
+        .module = mirrorLocalVertShaderModule,
+        .pName = "main",
+    };
+    VkPipelineShaderStageCreateInfo mirrorLocalFragShaderInfo {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = mirrorLocalFragShaderModule,
+        .pName = "main",
+    };
     VkPipelineShaderStageCreateInfo simpleShaderStages[] = { vertShaderInfo, simpleFragShaderInfo };
     VkPipelineShaderStageCreateInfo environmentShaderStages[] = { vertShaderInfo, environmentFragShaderInfo };
     VkPipelineShaderStageCreateInfo mirrorShaderStages[] = { vertShaderInfo, mirrorFragShaderInfo };
     VkPipelineShaderStageCreateInfo lambertianShaderStages[] = { vertShaderInfo, lambertianFragShaderInfo };
     VkPipelineShaderStageCreateInfo pbrShaderStages[] = { vertShaderInfo, pbrFragShaderInfo };
     VkPipelineShaderStageCreateInfo shadowShaderStages[] = { shadowVertShaderInfo };
+    VkPipelineShaderStageCreateInfo mirrorLocalShaderStages[] = { mirrorLocalVertShaderInfo, mirrorLocalFragShaderInfo };
 
     // Finally create the render pipelines
     VkGraphicsPipelineCreateInfo renderPipelineInfos[] = {
@@ -748,12 +829,31 @@ void MaterialPipelines::createPipelines() {
             .basePipelineHandle = VK_NULL_HANDLE,
             .basePipelineIndex = -1,
         },
+        // Mirror Local Warping Pipeline
+        {
+            .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+            .stageCount = 2,
+            .pStages = mirrorLocalShaderStages,
+            .pVertexInputState = &vertexInputInfo,
+            .pInputAssemblyState = &inputAssemblyInfo,
+            .pViewportState = &viewportStateInfo,
+            .pRasterizationState = &rasterizerStateInfo,
+            .pMultisampleState = &multisamplingInfo,
+            .pDepthStencilState = &depthStencilInfo,
+            .pColorBlendState = &colorBlendInfo,
+            .pDynamicState = &dynamicStateInfo,
+            .layout = mirrorLocalPipelineLayout,
+            .renderPass = mirrorLocalRenderPass,
+            .subpass = 0,
+            .basePipelineHandle = VK_NULL_HANDLE,
+            .basePipelineIndex = -1,
+        },
     };
-    std::array<VkPipeline, 6> pipelineTargets;
+    std::array<VkPipeline, 7> pipelineTargets;
 
     // This call takes in multiple pipelines to create. I'm guessing real apps need a bunch of pipelines, so they made a call to batch compile them.
     // In fact, this is probably where "shader compilation" and "shader caches" come in for games I play. Neat!
-    VK_ERR(vkCreateGraphicsPipelines(renderInstance->device, VK_NULL_HANDLE, 6, renderPipelineInfos, nullptr, pipelineTargets.data()), "failed to create graphics pipeline!");
+    VK_ERR(vkCreateGraphicsPipelines(renderInstance->device, VK_NULL_HANDLE, 7, renderPipelineInfos, nullptr, pipelineTargets.data()), "failed to create graphics pipeline!");
 
     simplePipeline = pipelineTargets[0];
     environmentPipeline = pipelineTargets[1];
@@ -761,6 +861,7 @@ void MaterialPipelines::createPipelines() {
     lambertianPipeline = pipelineTargets[3];
     pbrPipeline = pipelineTargets[4];
     shadowPipeline = pipelineTargets[5];
+    mirrorLocalPipeline = pipelineTargets[6];
 
     // Clean up our shader modules now that we are finished with them (the pipeline keeps its own copy)
     vkDestroyShaderModule(renderInstance->device, vertShaderModule, nullptr);
@@ -770,4 +871,6 @@ void MaterialPipelines::createPipelines() {
     vkDestroyShaderModule(renderInstance->device, lambertianFragShaderModule, nullptr);
     vkDestroyShaderModule(renderInstance->device, pbrFragShaderModule, nullptr);
     vkDestroyShaderModule(renderInstance->device, shadowVertShaderModule, nullptr);
+    vkDestroyShaderModule(renderInstance->device, mirrorLocalVertShaderModule, nullptr);
+    vkDestroyShaderModule(renderInstance->device, mirrorLocalFragShaderModule, nullptr);
 }
