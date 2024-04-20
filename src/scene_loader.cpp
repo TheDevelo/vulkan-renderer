@@ -552,7 +552,7 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
                 env.info.type = 2;
                 env.info.mirrorDist = localObj.at("distance").as_num();
-                env.meshIndex = localObj.at("mesh").as_num();
+                env.meshIndex = meshIdMap.at(localObj.at("mesh").as_num());
             }
         }
 
@@ -585,9 +585,8 @@ Scene::Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const&
 
             // If we have a mirror local environment, create a blank copy of the GGX cubemap stack
             if (env.info.type == 2) {
-                env.parallaxedGGX = std::move(env.ggx);
-                env.ggx = std::make_unique<CombinedCubemap>(renderInstance, env.parallaxedGGX->width, env.parallaxedGGX->height, env.parallaxedGGX->mipLevels, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                                           VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+                env.parallaxedGGX = std::make_unique<CombinedCubemap>(renderInstance, env.ggx->width, env.ggx->height, env.ggx->mipLevels, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                                                      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
             }
         }
         else if (env.info.type == 1 || env.info.type == 2) {

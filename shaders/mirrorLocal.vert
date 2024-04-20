@@ -40,15 +40,15 @@ const mat4 faceRotations[6] = mat4[6](
     // +Y
     mat4(
         vec4(1, 0, 0, 0),
-        vec4(0, 0, 1, 0),
-        vec4(0, -1, 0, 0),
+        vec4(0, 0, -1, 0),
+        vec4(0, 1, 0, 0),
         vec4(0, 0, 0, 1)
     ),
     // -Y
     mat4(
         vec4(1, 0, 0, 0),
-        vec4(0, 0, -1, 0),
-        vec4(0, 1, 0, 0),
+        vec4(0, 0, 1, 0),
+        vec4(0, -1, 0, 0),
         vec4(0, 0, 0, 1)
     ),
     // +Z
@@ -67,17 +67,21 @@ const mat4 faceRotations[6] = mat4[6](
     )
 );
 
+// Infinite projection matrix with FOV = 90, Aspect = 1, and zNear = 0.01
+const mat4 projection = mat4(
+    vec4(1, 0, 0, 0),
+    vec4(0, -1, 0, 0),
+    vec4(0, 0, -1, -1),
+    vec4(0, 0, -0.01, 0)
+);
+
 void main() {
     localFragPos = inPosition;
 
-    // Flip the model at the environment mirror plane
-    vec4 mirrorPos = vec4(inPosition, 1.0);
-    mirrorPos.z  = -(mirrorPos.z + envInfo.mirrorDist) - envInfo.mirrorDist;
+    // Reflect the camera across the mirror plane
+    vec4 cameraPos = envInfo.transform * camera.position;
+    cameraPos.z = -(cameraPos.z + envInfo.mirrorDist) - envInfo.mirrorDist;
 
-    // Transform our env-space model into world-space
-    // Would be more efficient to pre-compute the inverse, but I'm lazy and this shader will only be run on small models
-    vec4 worldPos = inverse(envInfo.transform) * mirrorPos;
-
-    // Move into camera-space based on the face and project
-    gl_Position = camera.proj * faceRotations[face] * camera.view * worldPos;
+    // Move the world so that the reflected camera is the origin, and then rotate to face our face and project
+    gl_Position = projection * faceRotations[face] * vec4(inPosition - cameraPos.xyz, 1.0);
 }

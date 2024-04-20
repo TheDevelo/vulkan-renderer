@@ -70,6 +70,7 @@ struct alignas(256) LightInfo {
 enum class SceneRenderType {
     SOLID,
     SHADOW,
+    MIRROR_LOCAL,
 };
 
 struct SceneRenderInfo {
@@ -84,6 +85,10 @@ struct SceneRenderInfo {
 
     // Shadow mapping info
     uint32_t lightIndex;
+
+    // Mirror Local warping info
+    uint32_t face;
+    uint32_t mipLevel;
 };
 
 // Scene class & container structs
@@ -251,6 +256,7 @@ public:
     explicit Scene(std::shared_ptr<RenderInstance>& renderInstance, std::string const& filename);
 
     void renderScene(SceneRenderInfo const& sceneRenderInfo);
+    void renderEnvBoundingMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t environmentId);
 
     void updateCameraTransform(RenderInstance const& renderInstance); // Need render instance for the user camera aspect ratio calculation
     void updateEnvironmentTransforms();

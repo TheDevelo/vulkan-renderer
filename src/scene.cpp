@@ -150,6 +150,33 @@ void Scene::renderMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t meshId, 
     vkCmdDraw(sceneRenderInfo.commandBuffer, mesh.vertexCount, 1, 0, 0);
 }
 
+void Scene::renderEnvBoundingMesh(SceneRenderInfo const& sceneRenderInfo, uint32_t environmentId) {
+    Mesh& mesh = meshes[environments[environmentId].meshIndex];
+
+    // Bind the appropriate pipeline
+    VkPipelineLayout layout = sceneRenderInfo.pipelines.mirrorLocalPipelineLayout;
+    vkCmdBindPipeline(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, sceneRenderInfo.pipelines.mirrorLocalPipeline);
+
+    // Bind the appropriate descriptors
+    vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &cameraDescriptorSet, 1, &sceneRenderInfo.cameraDescriptorOffset);
+    vkCmdBindDescriptorSets(sceneRenderInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &environments[environmentId].descriptorSet, 1, &sceneRenderInfo.environmentDescriptorOffset);
+
+    // Set the push constants
+    vkCmdPushConstants(sceneRenderInfo.commandBuffer, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(uint32_t), &sceneRenderInfo.face);
+    vkCmdPushConstants(sceneRenderInfo.commandBuffer, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(uint32_t), sizeof(uint32_t), &sceneRenderInfo.mipLevel);
+
+    // Set the vertex buffer for the mesh
+    if (mesh.vertexBufferIndex >= buffers.size()) {
+        PANIC(string_format("mesh %s includes vertex buffer %u out of range!", mesh.name.c_str(), mesh.vertexBufferIndex));
+    }
+    VkBuffer meshVertBuffer = buffers[mesh.vertexBufferIndex].buffer;
+
+    VkDeviceSize offsets[] = {mesh.vertexBufferOffset};
+    vkCmdBindVertexBuffers(sceneRenderInfo.commandBuffer, 0, 1, &meshVertBuffer, offsets);
+
+    vkCmdDraw(sceneRenderInfo.commandBuffer, mesh.vertexCount, 1, 0, 0);
+}
+
 void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
     float aspectRatio;
     float vFov;

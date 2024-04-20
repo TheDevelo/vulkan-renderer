@@ -160,7 +160,7 @@ private:
                         // Create the image view to the specific face and mipmap
                         VkImageViewCreateInfo imageViewCreateInfo {
                             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                            .image = scene.environments[i].ggx->image,
+                            .image = scene.environments[i].parallaxedGGX->image,
                             .viewType = VK_IMAGE_VIEW_TYPE_2D,
                             .format = VK_FORMAT_R32G32B32A32_SFLOAT,
                             .components = VkComponentMapping {
@@ -517,6 +517,89 @@ private:
                     .levelCount = 1,
                     .baseArrayLayer = 0,
                     .layerCount = 1,
+                });
+        }
+
+        // Render the parallax-correct GGX cubemaps for each mirror local environment
+        for (uint32_t i = 0; i < scene.environments.size(); i++) {
+            if (scene.environments[i].info.empty || scene.environments[i].info.type != 2) {
+                continue;
+            }
+            uint32_t startIndex = envFramebufferStartIndex[i];
+            uint32_t width = scene.environments[i].ggx->width;
+            uint32_t height = scene.environments[i].ggx->height;
+            for (uint32_t mipLevel = 0; mipLevel < scene.environments[i].info.ggxMipLevels; mipLevel++) {
+                for (uint32_t f = 0; f < 6; f++) {
+                    uint32_t index = startIndex + mipLevel * 6 + f;
+
+                    VkExtent2D extent {
+                        .width = width,
+                        .height = width,
+                    };
+
+                    // Start the render pass
+                    VkClearValue clearColor {
+                        .color = {{0.0f, 0.0f, 0.0f, 1.0f}},
+                    };
+                    VkRenderPassBeginInfo renderPassInfo {
+                        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+                        .renderPass = materialPipelines->mirrorLocalRenderPass,
+                        .framebuffer = envFramebuffers[index],
+                        .renderArea = VkRect2D {
+                            .offset = {0, 0},
+                            .extent = extent,
+                        },
+                        .clearValueCount = 1,
+                        .pClearValues = &clearColor,
+                    };
+                    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+                    // Set the camera viewport and scissor
+                    // We negate height to flip the render AND render backfaces
+                    VkViewport viewport {
+                        .x = 0.0f,
+                        .y = (float) height,
+                        .width = (float) width,
+                        .height = -((float) height),
+                        .minDepth = 0.0f,
+                        .maxDepth = 1.0f,
+                    };
+                    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+                    VkRect2D scissor {
+                        .offset = {0, 0},
+                        .extent = extent,
+                    };
+                    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+                    // Draw the scene
+                    SceneRenderInfo sceneRenderInfo {
+                        .commandBuffer = commandBuffer,
+                        .pipelines = *materialPipelines,
+                        .type = SceneRenderType::MIRROR_LOCAL,
+
+                        .cameraDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(CameraInfo)),
+                        .environmentDescriptorOffset = currentFrame * static_cast<uint32_t>(sizeof(EnvironmentInfo)),
+
+                        .face = f,
+                        .mipLevel = mipLevel,
+                    };
+                    scene.renderEnvBoundingMesh(sceneRenderInfo, i);
+
+                    // End our render pass
+                    vkCmdEndRenderPass(commandBuffer);
+                }
+                width /= 2;
+                height /= 2;
+            }
+
+            // Transition the cubemap into a format that can be read by the shaders
+            transitionImageLayout(commandBuffer, scene.environments[i].parallaxedGGX->image, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VkImageSubresourceRange {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = scene.environments[i].info.ggxMipLevels,
+                    .baseArrayLayer = 0,
+                    .layerCount = 6,
                 });
         }
 
