@@ -3,13 +3,25 @@
 #include <vulkan/vk_enum_string_helper.h>
 
 #include <memory>
+#include <sstream>
 #include <string>
 #include <stdexcept>
 
 #include "instance.hpp"
 
 // Error handling macros
-#define VK_ERR(fn, msg) { VkResult res = fn; if (res != VK_SUCCESS) { throw std::runtime_error(string_format("%s - %s", msg, string_VkResult(res))); } }
+// Credit to Miles Conn for VK_ERR
+#define VK_ERR(fn, msg)                                                        \
+    do {                                                                       \
+        VkResult err = fn;                                                     \
+        if (err != VK_SUCCESS) {                                               \
+            std::stringstream ss;                                              \
+            ss << msg << "\n"                                                  \
+               << __FILE__ << ":" << __LINE__                                  \
+               << " Detected Vulkan error: " << string_VkResult(err);          \
+            throw std::runtime_error(ss.str());                                \
+        }                                                                      \
+    } while (0)
 #define PANIC(msg) throw std::runtime_error(msg)
 
 VkImageView createImageView(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags);
