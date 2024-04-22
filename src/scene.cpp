@@ -235,7 +235,7 @@ void Scene::updateCameraTransform(RenderInstance const& renderInstance) {
             viewMatrix = linear::mmul(node.invTransform, viewMatrix);
         }
         cameraInfo.view = viewMatrix;
-        cameraInfo.position = Vec4<float>(userCamera.position, 1.0);
+        cameraInfo.position = Vec4<float>(0.0, 0.0, 0.0, 1.0);
         for (auto ancestor = camera.ancestors.rbegin(); ancestor != camera.ancestors.rend(); ancestor++) {
             Node& node = nodes[*ancestor];
             cameraInfo.position = linear::mmul(node.transform, cameraInfo.position);

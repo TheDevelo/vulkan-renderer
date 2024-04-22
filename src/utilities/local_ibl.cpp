@@ -29,7 +29,7 @@ const int MAX_FRAMES_IN_FLIGHT = 2;
 
 class LocalIBLUtility {
 public:
-    void run(std::string scenePathIn, uint32_t cubeSizeIn) {
+    void run(std::string scenePathIn, uint32_t cubeSizeIn, float exposure) {
         scenePath = scenePathIn;
         cubeSize = cubeSizeIn;
         // Init our render instance
@@ -37,6 +37,7 @@ public:
 
         // Load our scene
         scene = Scene(renderInstance, scenePath);
+        scene.cameraInfo.exposure = exposure;
 
         // Init the rest of our Vulkan primitives
         initVulkan();
@@ -474,7 +475,7 @@ public:
             vkDestroyFence(renderInstance->device, inFlightFences[i], nullptr);
         }
 
-        for (VkFramebuffer framebuffer : shadowMapFramebuffers) {
+        for (VkFramebuffer framebuffer : renderTargetFramebuffers) {
             vkDestroyFramebuffer(renderInstance->device, framebuffer, nullptr);
         }
         for (VkFramebuffer framebuffer : shadowMapFramebuffers) {
@@ -488,6 +489,7 @@ int main(int argc, char* argv[]) {
     std::string scenePath = "";
 
     int currentIndex = 1;
+    float exposure = 1.0;
     const std::vector<std::string_view> args(argv + 0, argv + argc);
     while (currentIndex < argc) {
         std::string_view currentArg = args[currentIndex];
@@ -511,6 +513,18 @@ int main(int argc, char* argv[]) {
                 PANIC("invalid argument to --cubemap-size");
             }
         }
+        else if (currentArg == "--exposure") {
+            currentIndex += 1;
+            if (currentIndex >= argc) {
+                PANIC("missing argument to --exposure");
+            }
+
+            std::string_view expStr = args[currentIndex];
+            auto expResult = std::from_chars(expStr.data(), expStr.data() + expStr.size(), exposure);
+            if (expResult.ec == std::errc::invalid_argument || expResult.ec == std::errc::result_out_of_range) {
+                PANIC("invalid argument to --exposure");
+            }
+        }
         else {
             PANIC("invalid command line argument: " + std::string(currentArg));
         }
@@ -524,7 +538,7 @@ int main(int argc, char* argv[]) {
     LocalIBLUtility iblUtil;
 
     try {
-        iblUtil.run(scenePath, cubemapSize);
+        iblUtil.run(scenePath, cubemapSize, exposure);
     }
     catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
